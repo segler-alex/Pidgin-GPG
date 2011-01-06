@@ -12,6 +12,8 @@ AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 AC_DISABLE_STATIC
 AC_PROG_LIBTOOL
 
+AC_PROG_CC
+
 # Checks for libraries.
 PKG_CHECK_MODULES([PIDGIN], [pidgin])
 PKG_CHECK_MODULES([PURPLE], [purple])
