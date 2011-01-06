@@ -9,10 +9,8 @@ AC_CONFIG_AUX_DIR([config])
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 
 # Checks for programs.
-AC_PROG_CC
-AC_PROG_LIBTOOL
-
 AC_DISABLE_STATIC
+AC_PROG_LIBTOOL
 
 # Checks for libraries.
 PKG_CHECK_MODULES([PIDGIN], [pidgin])

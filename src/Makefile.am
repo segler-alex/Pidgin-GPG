@@ -1,5 +1,7 @@
-lib_LTLIBRARIES = libpidgin_gpg.la
+plugin_LTLIBRARIES = pidgin_gpg.la
 
-libpidgin_gpg_la_SOURCES = pidgin-gpg.c
-libpidgin_gpg_la_CFLAGS = $(PIDGIN_CFLAGS) $(PURPLE_CFLAGS) $(GPGME_CFLAGS)
-libpidgin_gpg_la_LDFLAGS = $(PIDGIN_LIBS) $(PURPLE_LIBS) $(GPGME_LIBS)
+plugindir = ${libdir}/pidgin
+
+pidgin_gpg_la_SOURCES = pidgin-gpg.c
+pidgin_gpg_la_CFLAGS = $(PIDGIN_CFLAGS) $(PURPLE_CFLAGS) $(GPGME_CFLAGS)
+pidgin_gpg_la_LDFLAGS = -module -avoid-version $(PIDGIN_LIBS) $(PURPLE_LIBS) $(GPGME_LIBS)
