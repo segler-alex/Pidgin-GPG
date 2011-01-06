@@ -170,7 +170,7 @@ static PurplePluginInfo info = {
     "GPG Plugin for Pidgin",          
     "Simple GPG Plugin for Pidgin.",          
     "Aerol <rectifier04@gmail.com>",                          
-    "http://thatweirdguy.co.cc",     
+    "https://github.com/Aerol/Pidgin-GPG",     
     
     plugin_load,                   
     NULL,                          
