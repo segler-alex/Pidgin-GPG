@@ -1,0 +1,5 @@
+Build with:
+==========
+* autoreconf -i
+* ./configure
+* make
