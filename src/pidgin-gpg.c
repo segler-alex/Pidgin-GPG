@@ -2,6 +2,7 @@
  * Pidgin - GPG Pidgin Plugin
  *                                
  * Copyright (C) 2010, Aerol <rectifier04@gmail.com>
+ *                     segler_alex <segler_alex@web.de>
  *                                                                 
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,20 +18,6 @@
  * along with this program; if not, write to the Free Software         
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02111-1301  USA
  *                                                                               
- */
-
-/* Pidgin Plugin C Documentation at
- *
- * Gpg Documentation:
- * info gpgme
-
- * The name space of GPGME is `gpgme_*' for function names and data
- * types and `GPGME_*' for other symbols.  Symbols internal to GPGME take
- * the form `_gpgme_*' and `_GPGME_*'.
- *
- * Because GPGME makes use of the GPG Error library, using GPGME will
- * also use the `GPG_ERR_*' name space directly, and the `gpg_err*' and
- * `gpg_str*' name space indirectly.
  */
 
 #define PURPLE_PLUGINS
@@ -53,6 +40,9 @@
 
 #include <gpgme.h>
 
+/* ------------------
+ * initialize gpgme lib on module load
+ * ------------------ */
 static void init_gpgme ()
 {
 	const char* version;
@@ -69,6 +59,9 @@ static void init_gpgme ()
 	#endif
 }
 
+/* ------------------
+ * called on module load
+ * ------------------ */
 static gboolean plugin_load(PurplePlugin *plugin) {
 	/*
 	Initialize everything needed; get the passphrase for encrypting and decrypting messages.
@@ -78,6 +71,7 @@ static gboolean plugin_load(PurplePlugin *plugin) {
 	purple_signal_connect(pidgin_conversations_get_handle(), "conversation-displayed", plugin, PURPLE_CALLBACK(conv_created), NULL);
 	purple_signal_connect(purple_conversations_get_handle(), "conversation-extended-menu", plugin, PURPLE_CALLBACK(conv_menu_cb), NULL);*/
 
+	// initialize gpgme lib on module load
 	init_gpgme();
 
 	return TRUE;
@@ -88,6 +82,9 @@ static gboolean plugin_load(PurplePlugin *plugin) {
 	return TRUE;
 }*/
 
+/* ------------------
+ * preferences dialog function
+ * ------------------ */
 static PurplePluginPrefFrame *
 get_plugin_pref_frame(PurplePlugin *plugin) {
 	PurplePluginPrefFrame *frame;
@@ -139,6 +136,9 @@ get_plugin_pref_frame(PurplePlugin *plugin) {
 	return frame;
 }
 
+/* ------------------
+ * The plugin ui info struct for preferences dialog
+ * ------------------ */
 static PurplePluginUiInfo prefs_info = {
 	get_plugin_pref_frame,
 	0,   /* page_num (Reserved) */
@@ -150,6 +150,9 @@ static PurplePluginUiInfo prefs_info = {
 	NULL
 };
 
+/* ------------------
+ * The plugin info struct
+ * ------------------ */
 static PurplePluginInfo info = {
     PURPLE_PLUGIN_MAGIC,
     PURPLE_MAJOR_VERSION,
@@ -182,9 +185,13 @@ static PurplePluginInfo info = {
     NULL,                          
     NULL                           
 };                               
-    
+
+/* ------------------
+ * plugin init
+ * ------------------ */
 static void init_plugin(PurplePlugin *plugin)
 {
+	// create entries in prefs if they are not there
 	purple_prefs_add_none(PREF_ROOT);
 	purple_prefs_add_string(PREF_MY_KEY, "");
 }
