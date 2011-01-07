@@ -639,13 +639,13 @@ static PurplePluginInfo info = {
     PURPLE_PRIORITY_DEFAULT,
 
     PLUGIN_ID,
-    "Pidgin GPG",
+    "GPG/OPENPGP (XEP-0027)",
     "0.1",
 
     "GPG Plugin for Pidgin",          
     "Simple GPG Plugin for Pidgin.",          
-    "Aerol <rectifier04@gmail.com>",                          
-    "https://github.com/Aerol/Pidgin-GPG",     
+    "segler_alex <segler_alex@web.de>",
+    "https://github.com/segler-alex/Pidgin-GPG",     
     
     plugin_load,                   
     NULL,                          
