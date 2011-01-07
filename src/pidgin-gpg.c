@@ -579,8 +579,17 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 				char* enc_str = NULL;
 				char* bare_jid = get_bare_jid(to);
 
+				// check if hashtable already created
+				if (list_fingerprints == NULL)
+					list_fingerprints = g_hash_table_new(g_str_hash,g_str_equal);
+
 				// get encryption key
 				char* fpr_to = g_hash_table_lookup(list_fingerprints,bare_jid);
+				if (fpr_to == NULL)
+				{
+					purple_debug_info(PLUGIN_ID, "there is no key for encrypting message to %s\n",bare_jid);
+					return;
+				}
 				purple_debug_misc(PLUGIN_ID, "found key for encryption: %s\n",fpr_to);
 
 				// encrypt message
