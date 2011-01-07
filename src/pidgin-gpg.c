@@ -40,6 +40,9 @@
 
 #include <gpgme.h>
 
+/* ------------------
+ * xmlnode.h lacks a method for clearing the data of a node
+ * ------------------ */
 void
 xmlnode_clear_data(xmlnode *node)
 {
@@ -70,9 +73,25 @@ xmlnode_clear_data(xmlnode *node)
 	}
 }
 
+/* ------------------
+ * armor a string
+ * FREE MEMORY AFTER USAGE OF RETURN VALUE!
+ * ------------------ */
+static char* str_armor(const char* unarmored)
+{
+	char* header = "-----BEGIN PGP SIGNATURE-----\n\n";
+	char* footer = "\n-----END PGP SIGNATURE-----";
+
+	char* buffer = malloc(strlen(header)+strlen(footer)+strlen(unarmored)+1);
+	strcpy(buffer, header);
+	strcat(buffer, unarmored);
+	strcat(buffer, footer);
+	return buffer;
+}
 
 /* ------------------
  * sign a plain string with the key found with fingerprint fpr
+ * FREE MEMORY AFTER USAGE OF RETURN VALUE!
  * ------------------ */
 static char* sign(const char* plain_str,const char* fpr)
 {
@@ -81,8 +100,9 @@ static char* sign(const char* plain_str,const char* fpr)
 	gpgme_key_t key;
 	gpgme_data_t plain,sig;
 	const int MAX_LEN = 10000;
-	char sig_str[MAX_LEN];
-	int len = 0;
+	char *sig_str = NULL;
+	char *sig_str_dup = NULL;
+	size_t len = 0;
 
 	// connect to gpgme
 	gpgme_check_version (NULL);
@@ -126,25 +146,88 @@ static char* sign(const char* plain_str,const char* fpr)
 		return NULL;
 	}
 
-	// read data from output container into sig_str buffer
-	gpgme_data_rewind(sig);
-	len = gpgme_data_read(sig,sig_str,MAX_LEN);
-	sig_str[len] = 0;
-
 	// release memory for data containers
-	gpgme_data_release(sig);
 	gpgme_data_release(plain);
+	sig_str = gpgme_data_release_and_get_mem(sig,&len);
+	if (sig_str != NULL)
+	{
+		sig_str[len] = 0;
+		sig_str_dup = strdup(plain_str);
+	}
+	gpgme_free(sig_str);
 	
 	// close gpgme connection
 	gpgme_release (ctx);
 
-	return strdup(sig_str);
+	return sig_str_dup;
+}
+
+/* ------------------
+ * verify a signed string with the key found with fingerprint fpr
+ * FREE MEMORY AFTER USAGE OF RETURN VALUE!
+ * ------------------ */
+static char* verify(const char* sig_str)
+{
+	gpgme_error_t error;
+	gpgme_ctx_t ctx;
+	gpgme_data_t plain,sig,sig_text;
+	gpgme_verify_result_t result;
+	char* fpr = NULL;
+	char* armored_sig_str = NULL;
+
+	if (sig_str == NULL)
+	{
+		purple_debug_error(PLUGIN_ID,"verify got null parameter\n");
+		return NULL;
+	}
+
+	// connect to gpgme
+	gpgme_check_version (NULL);
+	error = gpgme_new(&ctx);
+	if (error)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_new failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		return NULL;
+	}
+
+	// armor sig_str
+	armored_sig_str = str_armor(sig_str);
+
+	// create data containers
+	gpgme_data_new_from_mem (&sig, armored_sig_str,strlen(armored_sig_str),1);
+	gpgme_data_new(&plain);
+
+	// try to verify
+	error = gpgme_op_verify(ctx,sig,NULL,plain);
+	if (error)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_op_verify failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		gpgme_release (ctx);
+		return NULL;
+	}
+
+	// get result
+ 	result = gpgme_op_verify_result (ctx);
+	if (result != NULL)
+	{
+		if (result->signatures != NULL)
+		{
+			// return the fingerprint of the key that made the signature
+			fpr = strdup(result->signatures->fpr);
+		}
+	}
+
+	// release memory for data containers
+	gpgme_data_release(sig);
+	gpgme_data_release(plain);
+
+	return fpr;
 }
 
 /* ------------------
  * encrypt a plain string with the key found with fingerprint fpr
  * ------------------ */
-static char* encrypt(char* plain_str, char* fpr)
+static char* encrypt(const char* plain_str, const char* fpr)
 {
 	gpgme_error_t error;
 	gpgme_ctx_t ctx;
@@ -180,6 +263,7 @@ static char* encrypt(char* plain_str, char* fpr)
 
 /* ------------------
  * decrypt a plain string with the key found with fingerprint fpr
+ * FREE MEMORY AFTER USAGE OF RETURN VALUE
  * ------------------ */
 static char* decrypt(char* cipher_str)
 {
@@ -189,15 +273,10 @@ static char* decrypt(char* cipher_str)
 	size_t len = 0;
 	char* plain_str = NULL;
 	char* plain_str_dup = NULL;
-	char armored_buffer[10000];
+	char* armored_buffer;
 
-	/* add header and footer:
-	-----BEGIN PGP SIGNATURE-----
-	Version: GnuPG v1.4.10 (GNU/Linux)
-	*/
-	strcpy(armored_buffer, "-----BEGIN PGP SIGNATURE-----\n\n");
-	strcat(armored_buffer, cipher_str);
-	strcat(armored_buffer, "\n-----END PGP SIGNATURE-----");
+	// add header and footer:
+	armored_buffer = str_armor(cipher_str);
 
 	// connect to gpgme
 	gpgme_check_version (NULL);
@@ -224,9 +303,11 @@ static char* decrypt(char* cipher_str)
 	// release memory for data containers
 	gpgme_data_release(cipher);
 	plain_str = gpgme_data_release_and_get_mem(plain,&len);
-	plain_str[len] = 0;
 	if (plain_str != NULL)
+	{
+		plain_str[len] = 0;
 		plain_str_dup = strdup(plain_str);
+	}
 	gpgme_free(plain_str);
 
 	// close gpgme connection
@@ -296,10 +377,10 @@ jabber_message_received(PurpleConnection *pc, const char *type, const char *id,
 				}else
 				{
 					// add body node if it is not found
-					body_node = xmlnode_new_child(parent_node,"body");
+					body_node = xmlnode_new_child(message,"body");
 				}
 				// set "body" content node to decrypted string
-				xmlnode_insert_data(body_node,"Ecrypted message: ",-1);				
+				xmlnode_insert_data(body_node,"Encrypted message: ",-1);				
 				xmlnode_insert_data(body_node,plain_str,-1);
 			}else
 			{
@@ -331,6 +412,23 @@ jabber_presence_received(PurpleConnection *pc, const char *type,
 	{
 		// user supports openpgp encryption
 		purple_debug_info(PLUGIN_ID, "user %s supports openpgp encryption!\n",from);
+
+		char* x_node_data = xmlnode_get_data(x_node);
+		if (x_node_data != NULL)
+		{
+			// try to verify
+			char* fpr = verify(x_node_data);
+			if (fpr != NULL)
+			{
+				purple_debug_info(PLUGIN_ID, "user %s has fingerprint %s\n",from,fpr);
+			}else
+			{
+				purple_debug_error(PLUGIN_ID, "could not verify presence of user %s\n",from);
+			}
+		}else
+		{
+			purple_debug_info(PLUGIN_ID, "user %s sent empty signed presence\n",from);
+		}
 	}
 
 	/* We don't want the plugin to stop processing */
