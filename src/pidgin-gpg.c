@@ -123,7 +123,7 @@ static gboolean
 jabber_message_received(PurpleConnection *pc, const char *type, const char *id,
                         const char *from, const char *to, xmlnode *message)
 {
-	purple_debug_misc("signals test", "jabber message (type=%s, id=%s, "
+	purple_debug_misc(PLUGIN_ID, "jabber message (type=%s, id=%s, "
 	                  "from=%s to=%s) %p\n",
 	                  type ? type : "(null)", id ? id : "(null)",
 	                  from ? from : "(null)", to ? to : "(null)", message);
@@ -144,14 +144,14 @@ jabber_presence_received(PurpleConnection *pc, const char *type,
 	const xmlnode* parent_node = presence;
 	xmlnode* x_node = NULL;
 
-	purple_debug_misc("signals test", "jabber presence");
+	purple_debug_misc(PLUGIN_ID, "jabber presence received");
 
 	// check if presence has special "x" childnode
 	x_node = xmlnode_get_child_with_namespace(parent_node,"x",NS_SIGNED);
 	if (x_node != NULL)
 	{
 		// user supports openpgp encryption
-		purple_debug_misc("signals test", "user %s supports openpgp encryption!\n",from);
+		purple_debug_misc(PLUGIN_ID, "user %s supports openpgp encryption!\n",from);
 	}
 
 	/* We don't want the plugin to stop processing */
@@ -172,7 +172,7 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 
 	if (g_str_equal((*packet)->name, "presence"))
 	{
-		purple_debug_misc("signals test", "jabber presence ready to send\n");
+		purple_debug_misc(PLUGIN_ID, "jabber presence ready to send\n");
 		xmlnode *x_node = xmlnode_new_child(*packet,"x");
 		xmlnode_set_namespace(x_node, NS_SIGNED);
 		xmlnode_insert_data(x_node, "test",-1);
