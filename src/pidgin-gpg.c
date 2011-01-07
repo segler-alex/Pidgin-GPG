@@ -176,6 +176,8 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 
 	// check if user selected a main key
 	const char* fpr = purple_prefs_get_string(PREF_MY_KEY);
+	if (fpr == NULL)
+		fpr = "";
 	if (strcmp(fpr,"") != 0)
 	{// user did select a key
 		// try to sign a string
@@ -184,15 +186,19 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 		//  so others know we support openpgp
 		if (g_str_equal((*packet)->name, "presence"))
 		{
-			const char* status_str;
+			const char* status_str = NULL;
 			xmlnode* status_node;
-			const xmlnode *parent_node = (const xmlnode*)packet;
-			// check if presence has special "x" childnode
-			status_node = xmlnode_get_child(parent_node,"status");
+
+			//TODO: does not work
+			// get status message from packet
+			//const xmlnode *parent_node = (const xmlnode*)packet;
+			/*status_node = xmlnode_get_child(parent_node,"status");
 			if (status_node != NULL)
 			{
 				status_str = xmlnode_get_data(status_node);
-			}
+			}*/
+
+			// sign status message
 			if (status_str == NULL)
 				status_str = "";
 			purple_debug_misc(PLUGIN_ID, "signing '%s'\n",status_str);
@@ -204,7 +210,8 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 				return;
 			}
 
-			purple_debug_misc(PLUGIN_ID, "jabber presence ready to send\n");
+			// create special "x" childnode
+			purple_debug_misc(PLUGIN_ID, "sending presence with signature\n");
 			xmlnode *x_node = xmlnode_new_child(*packet,"x");
 			xmlnode_set_namespace(x_node, NS_SIGNED);
 			xmlnode_insert_data(x_node, sig_str,-1);
