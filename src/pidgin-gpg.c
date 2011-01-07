@@ -41,6 +41,63 @@
 #include <gpgme.h>
 
 /* ------------------
+ * sign a plain string with the key found with fingerprint fpr
+ * ------------------ */
+static char* sign(const char* plain_str,const char* fpr)
+{
+	gpgme_error_t error;
+	gpgme_ctx_t ctx;
+	gpgme_key_t key;
+	gpgme_data_t plain,sig;
+	const int MAX_LEN = 10000;
+	char sig_str[MAX_LEN];
+	int len = 0;
+
+	// connect to gpgme
+	gpgme_check_version (NULL);
+	error = gpgme_new(&ctx);
+	if (error)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_new failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		return NULL;
+	}
+
+	// get key by fingerprint
+	error = gpgme_get_key(ctx,fpr,&key,1);
+	if (error || !key)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_get_key failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		return NULL;
+	}
+
+	// select signers
+	gpgme_signers_clear(ctx);
+	gpgme_signers_add (ctx,key);
+
+	// create data containers
+	gpgme_data_new_from_mem (&plain, plain_str,strlen(plain_str),1);
+	gpgme_data_new(&sig);
+
+	// sign message, ascii armored
+	gpgme_set_armor(ctx,1);
+	gpgme_op_sign(ctx,plain,sig,GPGME_SIG_MODE_DETACH);
+
+	// read data from output container into sig_str buffer
+	gpgme_data_rewind(sig);
+	len = gpgme_data_read(sig,sig_str,MAX_LEN);
+	sig_str[len] = 0;
+
+	// release memory for data containers
+	gpgme_data_release(sig);
+	gpgme_data_release(plain);
+	
+	// close gpgme connection
+	gpgme_release (ctx);
+
+	return strdup(sig_str);
+}
+
+/* ------------------
  * initialize gpgme lib on module load
  * ------------------ */
 static void init_gpgme ()
@@ -60,9 +117,83 @@ static void init_gpgme ()
 }
 
 /* ------------------
+ * called on received message
+ * ------------------ */
+static gboolean
+jabber_message_received(PurpleConnection *pc, const char *type, const char *id,
+                        const char *from, const char *to, xmlnode *message)
+{
+	purple_debug_misc("signals test", "jabber message (type=%s, id=%s, "
+	                  "from=%s to=%s) %p\n",
+	                  type ? type : "(null)", id ? id : "(null)",
+	                  from ? from : "(null)", to ? to : "(null)", message);
+
+	/* We don't want the plugin to stop processing */
+	return FALSE;
+}
+
+static const char* NS_SIGNED = "jabber:x:signed";
+
+/* ------------------
+ * called on received presence
+ * ------------------ */
+static gboolean
+jabber_presence_received(PurpleConnection *pc, const char *type,
+                         const char *from, xmlnode *presence)
+{
+	const xmlnode* parent_node = presence;
+	xmlnode* x_node = NULL;
+
+	purple_debug_misc("signals test", "jabber presence");
+
+	// check if presence has special "x" childnode
+	x_node = xmlnode_get_child_with_namespace(parent_node,"x",NS_SIGNED);
+	if (x_node != NULL)
+	{
+		// user supports openpgp encryption
+		purple_debug_misc("signals test", "user %s supports openpgp encryption!\n",from);
+	}
+
+	/* We don't want the plugin to stop processing */
+	return FALSE;
+}
+
+
+/* ------------------
+ * called on every sent packet
+ * ------------------ */
+void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
+                           gpointer unused)
+{
+	if (NULL == packet)
+		return;
+
+	g_return_if_fail(PURPLE_CONNECTION_IS_VALID(pc));
+
+	if (g_str_equal((*packet)->name, "presence"))
+	{
+		purple_debug_misc("signals test", "jabber presence ready to send\n");
+		xmlnode *x_node = xmlnode_new_child(*packet,"x");
+		xmlnode_set_namespace(x_node, NS_SIGNED);
+		xmlnode_insert_data(x_node, "test",-1);
+	}
+}
+
+/* ------------------
  * called on module load
  * ------------------ */
-static gboolean plugin_load(PurplePlugin *plugin) {
+static gboolean plugin_load(PurplePlugin *plugin)
+{
+	// register presence receiver handler
+	void *jabber_handle   = purple_plugins_find_with_id("prpl-jabber");
+
+	if (jabber_handle)
+	{
+		purple_signal_connect(jabber_handle, "jabber-receiving-message", plugin,PURPLE_CALLBACK(jabber_message_received), NULL);
+		purple_signal_connect(jabber_handle, "jabber-receiving-presence", plugin,PURPLE_CALLBACK(jabber_presence_received), NULL);
+		purple_signal_connect(jabber_handle, "jabber-sending-xmlnode", plugin, PURPLE_CALLBACK(jabber_send_signal_cb), NULL);
+	}
+
 	/*
 	Initialize everything needed; get the passphrase for encrypting and decrypting messages.
 	Attach to all windows the chat windows.
@@ -73,6 +204,7 @@ static gboolean plugin_load(PurplePlugin *plugin) {
 
 	// initialize gpgme lib on module load
 	init_gpgme();
+
 
 	return TRUE;
 }
