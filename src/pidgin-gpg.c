@@ -423,10 +423,6 @@ jabber_message_received(PurpleConnection *pc, const char *type, const char *id,
 	const xmlnode* parent_node = message;
 	xmlnode* x_node = NULL;
 
-	purple_debug_misc(PLUGIN_ID, "jabber message (type=%s, id=%s, from=%s to=%s) %p\n",
-	                  type ? type : "(null)", id ? id : "(null)",
-	                  from ? from : "(null)", to ? to : "(null)", message);
-
 	// check if message has special "x" child node => encrypted message
 	x_node = xmlnode_get_child_with_namespace(parent_node,"x",NS_ENC);
 	if (x_node != NULL)
@@ -553,7 +549,7 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 			// sign status message
 			if (status_str == NULL)
 				status_str = "";
-			purple_debug_misc(PLUGIN_ID, "signing status '%s' with key %s\n",status_str,fpr);
+			purple_debug_info(PLUGIN_ID, "signing status '%s' with key %s\n",status_str,fpr);
 
 			char* sig_str = sign(status_str,fpr);
 			if (sig_str == NULL)
@@ -563,7 +559,7 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 			}
 
 			// create special "x" childnode
-			purple_debug_misc(PLUGIN_ID, "sending presence with signature\n");
+			purple_debug_info(PLUGIN_ID, "sending presence with signature\n");
 			xmlnode *x_node = xmlnode_new_child(*packet,"x");
 			xmlnode_set_namespace(x_node, NS_SIGNED);
 			xmlnode_insert_data(x_node, sig_str,-1);
@@ -590,7 +586,7 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 					purple_debug_info(PLUGIN_ID, "there is no key for encrypting message to %s\n",bare_jid);
 					return;
 				}
-				purple_debug_misc(PLUGIN_ID, "found key for encryption: %s\n",fpr_to);
+				purple_debug_info(PLUGIN_ID, "found key for encryption: %s\n",fpr_to);
 
 				// encrypt message
 				//TODO: get public key fpr from receiver
@@ -602,7 +598,7 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 					xmlnode_insert_data(body_node,"[ERROR: This message is encrypted, and you are unable to decrypt it.]",-1);
 
 					// add special "x" childnode for encrypted text
-					purple_debug_misc(PLUGIN_ID, "sending encrypted message\n");
+					purple_debug_info(PLUGIN_ID, "sending encrypted message\n");
 					xmlnode *x_node = xmlnode_new_child(*packet,"x");
 					xmlnode_set_namespace(x_node, NS_ENC);
 					xmlnode_insert_data(x_node, enc_str,-1);
@@ -612,12 +608,13 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 				}
 			}else
 			{
-				purple_debug_warning(PLUGIN_ID, "empty message or empty 'to'\n");
+				// ignore this type of messages
+				//purple_debug_warning(PLUGIN_ID, "empty message or empty 'to'\n");
 			}
 		}
 	}else
 	{
-		purple_debug_misc(PLUGIN_ID, "no key selecteded!\n");
+		purple_debug_info(PLUGIN_ID, "no key selecteded!\n");
 	}
 }
 
