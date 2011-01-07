@@ -72,7 +72,12 @@ static char* sign(const char* plain_str,const char* fpr)
 
 	// select signers
 	gpgme_signers_clear(ctx);
-	gpgme_signers_add (ctx,key);
+	error = gpgme_signers_add (ctx,key);
+	if (error)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_signers_add failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		return NULL;
+	}
 
 	// create data containers
 	gpgme_data_new_from_mem (&plain, plain_str,strlen(plain_str),1);
@@ -144,7 +149,7 @@ jabber_presence_received(PurpleConnection *pc, const char *type,
 	const xmlnode* parent_node = presence;
 	xmlnode* x_node = NULL;
 
-	purple_debug_misc(PLUGIN_ID, "jabber presence received");
+	purple_debug_misc(PLUGIN_ID, "jabber presence received\n");
 
 	// check if presence has special "x" childnode
 	x_node = xmlnode_get_child_with_namespace(parent_node,"x",NS_SIGNED);
@@ -158,7 +163,6 @@ jabber_presence_received(PurpleConnection *pc, const char *type,
 	return FALSE;
 }
 
-
 /* ------------------
  * called on every sent packet
  * ------------------ */
@@ -170,12 +174,44 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 
 	g_return_if_fail(PURPLE_CONNECTION_IS_VALID(pc));
 
-	if (g_str_equal((*packet)->name, "presence"))
+	// check if user selected a main key
+	const char* fpr = purple_prefs_get_string(PREF_MY_KEY);
+	if (strcmp(fpr,"") != 0)
+	{// user did select a key
+		// try to sign a string
+		
+		// if we are sending a presence stanza, add new child node
+		//  so others know we support openpgp
+		if (g_str_equal((*packet)->name, "presence"))
+		{
+			const char* status_str;
+			xmlnode* status_node;
+			const xmlnode *parent_node = (const xmlnode*)packet;
+			// check if presence has special "x" childnode
+			status_node = xmlnode_get_child(parent_node,"status");
+			if (status_node != NULL)
+			{
+				status_str = xmlnode_get_data(status_node);
+			}
+			if (status_str == NULL)
+				status_str = "";
+			purple_debug_misc(PLUGIN_ID, "signing '%s'\n",status_str);
+
+			char* sig_str = sign(status_str,fpr);
+			if (sig_str == NULL)
+			{
+				purple_debug_error(PLUGIN_ID,"sign failed\n");
+				return;
+			}
+
+			purple_debug_misc(PLUGIN_ID, "jabber presence ready to send\n");
+			xmlnode *x_node = xmlnode_new_child(*packet,"x");
+			xmlnode_set_namespace(x_node, NS_SIGNED);
+			xmlnode_insert_data(x_node, sig_str,-1);
+		}
+	}else
 	{
-		purple_debug_misc(PLUGIN_ID, "jabber presence ready to send\n");
-		xmlnode *x_node = xmlnode_new_child(*packet,"x");
-		xmlnode_set_namespace(x_node, NS_SIGNED);
-		xmlnode_insert_data(x_node, "test",-1);
+		purple_debug_misc(PLUGIN_ID, "no key selecteded!\n");
 	}
 }
 
