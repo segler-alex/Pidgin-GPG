@@ -40,6 +40,37 @@
 
 #include <gpgme.h>
 
+void
+xmlnode_clear_data(xmlnode *node)
+{
+	xmlnode *data_node, *sibling = NULL;
+
+	g_return_if_fail(node != NULL);
+
+	data_node = node->child;
+	while (data_node) {
+		if(data_node->type == XMLNODE_TYPE_DATA)
+		{
+			if (node->lastchild == data_node) {
+				node->lastchild = sibling;
+			}
+			if (sibling == NULL) {
+				node->child = data_node->next;
+				xmlnode_free(data_node);
+				data_node = node->child;
+			} else {
+				sibling->next = data_node->next;
+				xmlnode_free(data_node);
+				data_node = sibling->next;
+			}
+		}else{
+			sibling = data_node;
+			data_node = data_node->next;
+		}
+	}
+}
+
+
 /* ------------------
  * sign a plain string with the key found with fingerprint fpr
  * ------------------ */
@@ -67,6 +98,7 @@ static char* sign(const char* plain_str,const char* fpr)
 	if (error || !key)
 	{
 		purple_debug_error(PLUGIN_ID,"gpgme_get_key failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		gpgme_release (ctx);
 		return NULL;
 	}
 
@@ -76,6 +108,7 @@ static char* sign(const char* plain_str,const char* fpr)
 	if (error)
 	{
 		purple_debug_error(PLUGIN_ID,"gpgme_signers_add failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		gpgme_release (ctx);
 		return NULL;
 	}
 
@@ -85,7 +118,13 @@ static char* sign(const char* plain_str,const char* fpr)
 
 	// sign message, ascii armored
 	gpgme_set_armor(ctx,1);
-	gpgme_op_sign(ctx,plain,sig,GPGME_SIG_MODE_DETACH);
+	error = gpgme_op_sign(ctx,plain,sig,GPGME_SIG_MODE_DETACH);
+	if (error)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_op_sign failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		gpgme_release (ctx);
+		return NULL;
+	}
 
 	// read data from output container into sig_str buffer
 	gpgme_data_rewind(sig);
@@ -101,6 +140,101 @@ static char* sign(const char* plain_str,const char* fpr)
 
 	return strdup(sig_str);
 }
+
+/* ------------------
+ * encrypt a plain string with the key found with fingerprint fpr
+ * ------------------ */
+static char* encrypt(char* plain_str, char* fpr)
+{
+	gpgme_error_t error;
+	gpgme_ctx_t ctx;
+	gpgme_key_t key;
+	gpgme_data_t plain,cipher;
+	const int MAX_LEN = 10000;
+	char sig_str[MAX_LEN];
+	int len = 0;
+
+	// connect to gpgme
+	gpgme_check_version (NULL);
+	error = gpgme_new(&ctx);
+	if (error)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_new failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		return NULL;
+	}
+
+	// get key by fingerprint
+	error = gpgme_get_key(ctx,fpr,&key,1);
+	if (error || !key)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_get_key failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		gpgme_release (ctx);
+		return NULL;
+	}
+
+	// close gpgme connection
+	gpgme_release (ctx);
+
+	return NULL;
+}
+
+/* ------------------
+ * decrypt a plain string with the key found with fingerprint fpr
+ * ------------------ */
+static char* decrypt(char* cipher_str)
+{
+	gpgme_error_t error;
+	gpgme_ctx_t ctx;
+	gpgme_data_t plain,cipher;
+	size_t len = 0;
+	char* plain_str = NULL;
+	char* plain_str_dup = NULL;
+	char armored_buffer[10000];
+
+	/* add header and footer:
+	-----BEGIN PGP SIGNATURE-----
+	Version: GnuPG v1.4.10 (GNU/Linux)
+	*/
+	strcpy(armored_buffer, "-----BEGIN PGP SIGNATURE-----\n\n");
+	strcat(armored_buffer, cipher_str);
+	strcat(armored_buffer, "\n-----END PGP SIGNATURE-----");
+
+	// connect to gpgme
+	gpgme_check_version (NULL);
+	error = gpgme_new(&ctx);
+	if (error)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_new failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		return NULL;
+	}
+
+	// create data containers
+	gpgme_data_new_from_mem (&cipher, armored_buffer,strlen(armored_buffer),1);
+	gpgme_data_new(&plain);
+
+	// decrypt
+	error = gpgme_op_decrypt(ctx,cipher,plain);
+	if (error)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_op_decrypt failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		gpgme_release (ctx);
+		return NULL;
+	}
+
+	// release memory for data containers
+	gpgme_data_release(cipher);
+	plain_str = gpgme_data_release_and_get_mem(plain,&len);
+	plain_str[len] = 0;
+	if (plain_str != NULL)
+		plain_str_dup = strdup(plain_str);
+	gpgme_free(plain_str);
+
+	// close gpgme connection
+	gpgme_release (ctx);
+
+	return plain_str_dup;
+}
+
 
 /* ------------------
  * initialize gpgme lib on module load
@@ -121,6 +255,9 @@ static void init_gpgme ()
 	#endif
 }
 
+static const char* NS_SIGNED = "jabber:x:signed";
+static const char* NS_ENC = "jabber:x:encrypted";
+
 /* ------------------
  * called on received message
  * ------------------ */
@@ -128,16 +265,55 @@ static gboolean
 jabber_message_received(PurpleConnection *pc, const char *type, const char *id,
                         const char *from, const char *to, xmlnode *message)
 {
-	purple_debug_misc(PLUGIN_ID, "jabber message (type=%s, id=%s, "
-	                  "from=%s to=%s) %p\n",
+	const xmlnode* parent_node = message;
+	xmlnode* x_node = NULL;
+
+	purple_debug_misc(PLUGIN_ID, "jabber message (type=%s, id=%s, from=%s to=%s) %p\n",
 	                  type ? type : "(null)", id ? id : "(null)",
 	                  from ? from : "(null)", to ? to : "(null)", message);
+
+	// check if message has special "x" child node => encrypted message
+	x_node = xmlnode_get_child_with_namespace(parent_node,"x",NS_ENC);
+	if (x_node != NULL)
+	{
+		purple_debug_info(PLUGIN_ID, "user %s sent us an encrypted message\n",from);
+
+		// get data of "x" node
+		char* cipher_str = xmlnode_get_data(x_node);
+		if (cipher_str != NULL)
+		{
+			// try to decrypt
+			char* plain_str = decrypt(cipher_str);
+			if (plain_str != NULL)
+			{
+				purple_debug_info(PLUGIN_ID, "decrypted message: %s\n",plain_str);
+				// find body node
+				xmlnode *body_node = xmlnode_get_child(parent_node,"body");
+				if (body_node != NULL)
+				{
+					// clear body node data if it is found
+					xmlnode_clear_data(body_node);
+				}else
+				{
+					// add body node if it is not found
+					body_node = xmlnode_new_child(parent_node,"body");
+				}
+				// set "body" content node to decrypted string
+				xmlnode_insert_data(body_node,"Ecrypted message: ",-1);				
+				xmlnode_insert_data(body_node,plain_str,-1);
+			}else
+			{
+				purple_debug_error(PLUGIN_ID, "could not decrypt message!\n");
+			}
+		}else
+		{
+			purple_debug_error(PLUGIN_ID, "xml token had no data!\n");
+		}
+	}
 
 	/* We don't want the plugin to stop processing */
 	return FALSE;
 }
-
-static const char* NS_SIGNED = "jabber:x:signed";
 
 /* ------------------
  * called on received presence
@@ -149,14 +325,12 @@ jabber_presence_received(PurpleConnection *pc, const char *type,
 	const xmlnode* parent_node = presence;
 	xmlnode* x_node = NULL;
 
-	purple_debug_misc(PLUGIN_ID, "jabber presence received\n");
-
 	// check if presence has special "x" childnode
 	x_node = xmlnode_get_child_with_namespace(parent_node,"x",NS_SIGNED);
 	if (x_node != NULL)
 	{
 		// user supports openpgp encryption
-		purple_debug_misc(PLUGIN_ID, "user %s supports openpgp encryption!\n",from);
+		purple_debug_info(PLUGIN_ID, "user %s supports openpgp encryption!\n",from);
 	}
 
 	/* We don't want the plugin to stop processing */
@@ -191,17 +365,16 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 
 			//TODO: does not work
 			// get status message from packet
-			//const xmlnode *parent_node = (const xmlnode*)packet;
-			/*status_node = xmlnode_get_child(parent_node,"status");
+			status_node = xmlnode_get_child(*packet,"status");
 			if (status_node != NULL)
 			{
 				status_str = xmlnode_get_data(status_node);
-			}*/
+			}
 
 			// sign status message
 			if (status_str == NULL)
 				status_str = "";
-			purple_debug_misc(PLUGIN_ID, "signing '%s'\n",status_str);
+			purple_debug_misc(PLUGIN_ID, "signing status '%s' with key %s\n",status_str,fpr);
 
 			char* sig_str = sign(status_str,fpr);
 			if (sig_str == NULL)
@@ -215,6 +388,35 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 			xmlnode *x_node = xmlnode_new_child(*packet,"x");
 			xmlnode_set_namespace(x_node, NS_SIGNED);
 			xmlnode_insert_data(x_node, sig_str,-1);
+		}else
+		if (g_str_equal((*packet)->name, "message"))
+		{
+			xmlnode* body_node = xmlnode_get_child(*packet,"body");
+			if (body_node != NULL)
+			{
+				// get message
+				char* message = strdup(xmlnode_get_data(body_node));
+				char* enc_str = NULL;
+
+				// encrypt message
+				//TODO: get public key fpr from receiver
+				enc_str = encrypt(message,fpr);
+				if (enc_str != NULL)
+				{
+					// remove message from body
+					xmlnode_clear_data(body_node);
+					xmlnode_insert_data(body_node,"[ERROR: This message is encrypted, and you are unable to decrypt it.]",-1);
+
+					// add special "x" childnode for encrypted text
+					purple_debug_misc(PLUGIN_ID, "sending encrypted message\n");
+					xmlnode *x_node = xmlnode_new_child(*packet,"x");
+					xmlnode_set_namespace(x_node, NS_ENC);
+					xmlnode_insert_data(x_node, enc_str,-1);
+				}else
+				{
+					purple_debug_error(PLUGIN_ID, "could not encrypt message\n");
+				}
+			}
 		}
 	}else
 	{
