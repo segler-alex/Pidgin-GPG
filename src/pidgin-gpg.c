@@ -198,7 +198,7 @@ static char* sign(const char* plain_str,const char* fpr)
 	if (sig_str != NULL)
 	{
 		sig_str[len] = 0;
-		sig_str_dup = strdup(plain_str);
+		sig_str_dup = str_unarmor(sig_str);
 	}
 	gpgme_free(sig_str);
 	
