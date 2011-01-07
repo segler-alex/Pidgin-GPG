@@ -40,6 +40,8 @@
 
 #include <gpgme.h>
 
+static GHashTable *list_fingerprints = NULL;
+
 /* ------------------
  * xmlnode.h lacks a method for clearing the data of a node
  * ------------------ */
@@ -87,6 +89,50 @@ static char* str_armor(const char* unarmored)
 	strcat(buffer, unarmored);
 	strcat(buffer, footer);
 	return buffer;
+}
+
+/* ------------------
+ * unarmor a string
+ * FREE MEMORY AFTER USAGE OF RETURN VALUE!
+ * ------------------ */
+static char* str_unarmor(const char* armored)
+{
+	char* pointer;
+	int newlines = 0;
+	char* footer = "-----END PGP SIGNATURE-----";
+	char* unarmored = NULL;
+
+	pointer = armored;
+	// jump over the first 3 lines
+	while (newlines < 3)
+	{
+		if (pointer[0] == '\n')
+			newlines++;
+		pointer++;
+
+		// return NULL if armored is too short
+		if (strlen(pointer) == 0)
+			return NULL;
+	}
+
+	unarmored = malloc(strlen(pointer)+1-strlen(footer));
+	strncpy(unarmored,pointer,strlen(pointer)-strlen(footer));
+	unarmored[strlen(pointer)-strlen(footer)] = 0;
+
+	return unarmored;
+}
+
+/* ------------------
+ * strips resource info from jid
+ * FREE MEMORY AFTER USAGE OF RETURN VALUE!
+ * ------------------ */
+static char* get_bare_jid(const char* jid)
+{
+	int len = strcspn(jid,"/");
+	char* str = malloc(len+1);
+	strncpy(str,jid,len);
+	str[len] = 0;
+	return str;
 }
 
 /* ------------------
@@ -233,9 +279,13 @@ static char* encrypt(const char* plain_str, const char* fpr)
 	gpgme_ctx_t ctx;
 	gpgme_key_t key;
 	gpgme_data_t plain,cipher;
-	const int MAX_LEN = 10000;
-	char sig_str[MAX_LEN];
-	int len = 0;
+	char* cipher_str = NULL;
+	char* cipher_str_dup = NULL;
+	size_t len;
+	gpgme_key_t key_arr[2];
+
+	key_arr[0] = NULL;
+	key_arr[1] = NULL;
 
 	// connect to gpgme
 	gpgme_check_version (NULL);
@@ -254,11 +304,36 @@ static char* encrypt(const char* plain_str, const char* fpr)
 		gpgme_release (ctx);
 		return NULL;
 	}
+	key_arr[0] = key;
+
+	// create data containers
+	gpgme_data_new_from_mem (&plain, plain_str,strlen(plain_str),1);
+	gpgme_data_new(&cipher);
+
+	// encrypt, ascii armored
+	gpgme_set_armor(ctx,1);
+	error = gpgme_op_encrypt (ctx, key_arr,GPGME_ENCRYPT_ALWAYS_TRUST,plain,cipher);
+	if (error)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_op_encrypt failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		gpgme_release (ctx);
+		return NULL;
+	}
+
+	// release memory for data containers
+	gpgme_data_release(plain);
+	cipher_str = gpgme_data_release_and_get_mem(cipher,&len);
+	if (cipher_str != NULL)
+	{
+		cipher_str[len] = 0;
+		cipher_str_dup = str_unarmor(cipher_str);
+	}
+	gpgme_free(cipher_str);
 
 	// close gpgme connection
 	gpgme_release (ctx);
 
-	return NULL;
+	return cipher_str_dup;
 }
 
 /* ------------------
@@ -315,7 +390,6 @@ static char* decrypt(char* cipher_str)
 
 	return plain_str_dup;
 }
-
 
 /* ------------------
  * initialize gpgme lib on module load
@@ -420,7 +494,14 @@ jabber_presence_received(PurpleConnection *pc, const char *type,
 			char* fpr = verify(x_node_data);
 			if (fpr != NULL)
 			{
-				purple_debug_info(PLUGIN_ID, "user %s has fingerprint %s\n",from,fpr);
+				char* bare_jid = get_bare_jid(from);
+				purple_debug_info(PLUGIN_ID, "user %s has fingerprint %s\n",bare_jid,fpr);
+
+				// add key to list
+				if (list_fingerprints == NULL)
+					list_fingerprints = g_hash_table_new(g_str_hash,g_str_equal);
+
+				g_hash_table_replace(list_fingerprints,bare_jid,fpr);
 			}else
 			{
 				purple_debug_error(PLUGIN_ID, "could not verify presence of user %s\n",from);
@@ -489,16 +570,22 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 		}else
 		if (g_str_equal((*packet)->name, "message"))
 		{
+			char* to = xmlnode_get_attrib(*packet,"to");
 			xmlnode* body_node = xmlnode_get_child(*packet,"body");
-			if (body_node != NULL)
+			if (body_node != NULL && to != NULL)
 			{
 				// get message
 				char* message = strdup(xmlnode_get_data(body_node));
 				char* enc_str = NULL;
+				char* bare_jid = get_bare_jid(to);
+
+				// get encryption key
+				char* fpr_to = g_hash_table_lookup(list_fingerprints,bare_jid);
+				purple_debug_misc(PLUGIN_ID, "found key for encryption: %s\n",fpr_to);
 
 				// encrypt message
 				//TODO: get public key fpr from receiver
-				enc_str = encrypt(message,fpr);
+				enc_str = encrypt(message,fpr_to);
 				if (enc_str != NULL)
 				{
 					// remove message from body
@@ -514,6 +601,9 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 				{
 					purple_debug_error(PLUGIN_ID, "could not encrypt message\n");
 				}
+			}else
+			{
+				purple_debug_warning(PLUGIN_ID, "empty message or empty 'to'\n");
 			}
 		}
 	}else
