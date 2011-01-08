@@ -834,6 +834,9 @@ menu_action_sendkey_cb(PurpleConversation *conv, void* data)
 			if (im_data != NULL)
 				purple_conv_im_send(im_data,key);
 		}
+	}else
+	{
+		purple_conversation_write(conv,"","You haven't selected a personal key yet.",PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
 	}
 }
 
