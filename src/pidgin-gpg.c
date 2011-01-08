@@ -214,6 +214,44 @@ char* get_key_armored(const char* fpr)
 }
 
 /* ------------------
+ * import ascii armored key
+ * ------------------ */
+int import_key(char* armored_key)
+{
+	gpgme_error_t error;
+	gpgme_ctx_t ctx;
+	gpgme_data_t keydata;
+
+	// connect to gpgme
+	gpgme_check_version (NULL);
+	error = gpgme_new(&ctx);
+	if (error)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_new failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		return FALSE;
+	}
+	// create data containers
+	gpgme_data_new_from_mem (&keydata, armored_key,strlen(armored_key),1);
+
+	// import key
+	error =  gpgme_op_import (ctx, keydata);
+	if (error)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_op_import: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		gpgme_release (ctx);
+		return FALSE;
+	}
+
+	// release memory for data containers
+	gpgme_data_release(keydata);
+
+	// close gpgme connection
+	gpgme_release (ctx);
+
+	return TRUE;
+}
+
+/* ------------------
  * sign a plain string with the key found with fingerprint fpr
  * FREE MEMORY AFTER USAGE OF RETURN VALUE!
  * ------------------ */
@@ -764,7 +802,21 @@ static gboolean
 receiving_im_msg_cb(PurpleAccount *account, char **sender, char **buffer,
 				    PurpleConversation *conv, PurpleMessageFlags *flags, void *data)
 {
+	char* header = "-----BEGIN PGP PUBLIC KEY BLOCK-----";
 	char sys_msg_buffer[1000];
+
+	if (strncmp(*buffer,header,strlen(header)) == 0)
+	{
+		// if we received a ascii armored key
+		// try to import it
+		purple_conversation_write(conv,"","received key",PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+		if (import_key(*buffer) == TRUE)
+			purple_conversation_write(conv,"","key import OK",PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+		else
+			purple_conversation_write(conv,"","key import failed",PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+
+		return TRUE;
+	}
 
 	// check if the user with the jid=conv->name has signed his presence
 	char* bare_jid = get_bare_jid(*sender);
@@ -832,7 +884,10 @@ menu_action_sendkey_cb(PurpleConversation *conv, void* data)
 			// send key
 			PurpleConvIm* im_data = purple_conversation_get_im_data(conv);
 			if (im_data != NULL)
-				purple_conv_im_send(im_data,key);
+			{
+				purple_conv_im_send_with_flags(im_data,key,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_INVISIBLE );
+				purple_conversation_write(conv,"","Public key sent!",PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+			}
 		}
 	}else
 	{
