@@ -40,6 +40,13 @@
 
 #include <gpgme.h>
 
+#ifndef TRUE
+	#define TRUE (1==1)
+#endif
+#ifndef FALSE
+	#define FALSE (1==0)
+#endif
+
 static GHashTable *list_fingerprints = NULL;
 
 struct list_item{
@@ -443,7 +450,7 @@ jabber_message_received(PurpleConnection *pc, const char *type, const char *id,
 	}else
 	{
 		// set default value to "not encrypted mode"
-		item->mode_sec = 0;
+		item->mode_sec = FALSE;
 	}
 	free(bare_jid);
 
@@ -478,7 +485,7 @@ jabber_message_received(PurpleConnection *pc, const char *type, const char *id,
 				xmlnode_insert_data(body_node,plain_str,-1);
 
 				// all went well, we received an encrypted message
-				item->mode_sec = 1;
+				item->mode_sec = TRUE;
 			}else
 			{
 				purple_debug_error(PLUGIN_ID, "could not decrypt message!\n");
@@ -524,7 +531,7 @@ jabber_presence_received(PurpleConnection *pc, const char *type,
 				struct list_item *item = malloc(sizeof(struct list_item));
 				item->fpr = fpr;
 				// set encryption mode for default
-				item->mode_sec = 1;
+				item->mode_sec = TRUE;
 				g_hash_table_replace(list_fingerprints,bare_jid,item);
 			}else
 			{
@@ -610,7 +617,7 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 					return;
 				}
 				// do not encrypt if mode_sec is disabled
-				if (item->mode_sec == 0)
+				if (item->mode_sec == FALSE)
 					return;
 
 				char* fpr_to = item->fpr;
@@ -679,7 +686,7 @@ void conversation_created_cb(PurpleConversation *conv, char* data)
 
 	if (item != NULL)
 	{
-		if (item->mode_sec == 1)
+		if (item->mode_sec == TRUE)
 			sprintf(sys_msg_buffer,"Encryption enabled");
 	}
 	// display message about received message
@@ -705,7 +712,7 @@ receiving_im_msg_cb(PurpleAccount *account, char **sender, char **buffer,
 	struct list_item* item = g_hash_table_lookup(list_fingerprints,bare_jid);
 	if (item != NULL)
 	{
-		if (item->mode_sec == 1)
+		if (item->mode_sec == TRUE)
 			sprintf(sys_msg_buffer,"Encryption enabled");
 	}
 	free(bare_jid);
