@@ -669,10 +669,10 @@ void conversation_created_cb(PurpleConversation *conv, char* data)
 	struct list_item* item = g_hash_table_lookup(list_fingerprints,bare_jid);
 	if (item == NULL)
 	{
-		sprintf(sys_msg_buffer,"No available OPENPGP key for %s",bare_jid);
+		sprintf(sys_msg_buffer,"No encryption support in client of %s",bare_jid);
 	}else
 	{
-		sprintf(sys_msg_buffer,"Available OPENPGP key for %s",bare_jid);
+		sprintf(sys_msg_buffer,"Client of user %s supports encryption",bare_jid);
 	}
 	free(bare_jid);
 
@@ -738,11 +738,11 @@ plugin_action_toggle_cb(PurpleConversation *conv, void* data)
 	{
 		item->mode_sec = !(item->mode_sec);
 		item->mode_sec_old = item->mode_sec;
+
+		// tell user, that we toggled mode
+		purple_conversation_write(conv,"",item->mode_sec?"Encryption enabled":"Encryption disabled",PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
 	}
 	free(bare_jid);
-
-	// tell user, that we toggled mode
-	purple_conversation_write(conv,"",item->mode_sec?"Encryption enabled":"Encryption disabled",PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
 }
 
 /* ------------------
@@ -753,10 +753,30 @@ conversation_extended_menu_cb(PurpleConversation *conv, GList **list)
 {
 	PurpleMenuAction *action = NULL;
 
-	// display encryption menu item
-	action = purple_menu_action_new("Toggle OPENPGP encryption", PURPLE_CALLBACK(plugin_action_toggle_cb),NULL,NULL);
+	// check if the user with the jid=conv->name has signed his presence
+	char* bare_jid = get_bare_jid(conv->name);
+	// get stored info about user
+	struct list_item* item = g_hash_table_lookup(list_fingerprints,bare_jid);
+	if (item != NULL)
+	{
+		// on display encryption menu item, if user sent signed presence
+		action = purple_menu_action_new("Toggle OPENPGP encryption", PURPLE_CALLBACK(plugin_action_toggle_cb),NULL,NULL);
+		*list = g_list_append(*list, action);
+	}
+	free(bare_jid);
+}
 
-	*list = g_list_append(*list, action);
+/* ------------------
+ * called before message is sent
+ * ------------------ */
+void sending_im_msg_cb(PurpleAccount *account, const char *receiver,
+                       char **message)
+{
+	
+
+	// cancel message sending
+	free (*message);
+	*message = NULL;
 }
 
 /* ------------------
@@ -777,6 +797,7 @@ static gboolean plugin_load(PurplePlugin *plugin)
 		purple_signal_connect(conv_handle, "conversation-created", plugin, PURPLE_CALLBACK(conversation_created_cb), NULL);
 		purple_signal_connect(conv_handle, "receiving-im-msg", plugin, PURPLE_CALLBACK(receiving_im_msg_cb), NULL);
 		purple_signal_connect(conv_handle, "conversation-extended-menu", plugin, PURPLE_CALLBACK(conversation_extended_menu_cb), NULL);
+		purple_signal_connect(conv_handle, "sending-im-msg", plugin, PURPLE_CALLBACK(sending_im_msg_cb), NULL);
 	}else
 		return FALSE;
 
