@@ -484,8 +484,12 @@ jabber_message_received(PurpleConnection *pc, const char *type, const char *id,
 				//xmlnode_insert_data(body_node,"Encrypted message: ",-1);
 				xmlnode_insert_data(body_node,plain_str,-1);
 
-				// all went well, we received an encrypted message
-				item->mode_sec = TRUE;
+				// only set to encrypted mode, if we know other users key fingerprint
+				if (item != NULL)
+				{
+					// all went well, we received an encrypted message
+					item->mode_sec = TRUE;
+				}
 			}else
 			{
 				purple_debug_error(PLUGIN_ID, "could not decrypt message!\n");
@@ -971,7 +975,7 @@ static PurplePluginInfo info = {
 
     PLUGIN_ID,
     "GPG/OPENPGP (XEP-0027)",
-    "0.6",
+    "0.7",
 
     "GPG Plugin for Pidgin",          
     "Simple GPG Plugin for Pidgin.",          
