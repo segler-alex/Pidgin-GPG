@@ -21,6 +21,13 @@
 
 #define PURPLE_PLUGINS
 
+#ifndef TRUE
+	#define TRUE (1==1)
+#endif
+#ifndef FALSE
+	#define FALSE (1==0)
+#endif
+
 #define PLUGIN_ID "core-segler-pidgin-gpg"
 #define PREF_ROOT "/plugins/core/core-segler-pidgin-gpg"
 #define PREF_MY_KEY "/plugins/core/core-segler-pidgin-gpg/my_key_fpr"
@@ -39,13 +46,6 @@
 #include <debug.h>
 
 #include <gpgme.h>
-
-#ifndef TRUE
-	#define TRUE (1==1)
-#endif
-#ifndef FALSE
-	#define FALSE (1==0)
-#endif
 
 static GHashTable *list_fingerprints = NULL;
 
@@ -558,21 +558,19 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 
 	g_return_if_fail(PURPLE_CONNECTION_IS_VALID(pc));
 
-	// check if user selected a main key
-	const char* fpr = purple_prefs_get_string(PREF_MY_KEY);
-	if (fpr == NULL)
-		fpr = "";
-	if (strcmp(fpr,"") != 0)
-	{// user did select a key
-		// try to sign a string
-		
-		// if we are sending a presence stanza, add new child node
-		//  so others know we support openpgp
-		if (g_str_equal((*packet)->name, "presence"))
-		{
-			const char* status_str = NULL;
-			xmlnode* status_node;
+	// if we are sending a presence stanza, add new child node
+	//  so others know we support openpgp
+	if (g_str_equal((*packet)->name, "presence"))
+	{
+		const char* status_str = NULL;
+		xmlnode* status_node;
 
+		// check if user selected a main key
+		const char* fpr = purple_prefs_get_string(PREF_MY_KEY);
+		if (fpr == NULL)
+			fpr = "";
+		if (strcmp(fpr,"") != 0)
+		{// user did select a key
 			// get status message from packet
 			status_node = xmlnode_get_child(*packet,"status");
 			if (status_node != NULL)
@@ -598,58 +596,58 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 			xmlnode_set_namespace(x_node, NS_SIGNED);
 			xmlnode_insert_data(x_node, sig_str,-1);
 		}else
-		if (g_str_equal((*packet)->name, "message"))
 		{
-			const char* to = xmlnode_get_attrib(*packet,"to");
-			xmlnode* body_node = xmlnode_get_child(*packet,"body");
-			if (body_node != NULL && to != NULL)
-			{
-				// get message
-				char* message = g_strdup(xmlnode_get_data(body_node));
-				char* enc_str = NULL;
-				char* bare_jid = get_bare_jid(to);
-
-				// get encryption key
-				struct list_item *item = g_hash_table_lookup(list_fingerprints,bare_jid);
-				if (item == NULL)
-				{
-					purple_debug_info(PLUGIN_ID, "there is no key for encrypting message to %s\n",bare_jid);
-					return;
-				}
-				// do not encrypt if mode_sec is disabled
-				if (item->mode_sec == FALSE)
-					return;
-
-				char* fpr_to = item->fpr;
-				purple_debug_info(PLUGIN_ID, "found key for encryption to user %s: %s\n",bare_jid,fpr_to);
-				free(bare_jid);
-
-				// encrypt message
-				enc_str = encrypt(message,fpr_to);
-				if (enc_str != NULL)
-				{
-					// remove message from body
-					xmlnode_clear_data(body_node);
-					xmlnode_insert_data(body_node,"[ERROR: This message is encrypted, and you are unable to decrypt it.]",-1);
-
-					// add special "x" childnode for encrypted text
-					purple_debug_info(PLUGIN_ID, "sending encrypted message\n");
-					xmlnode *x_node = xmlnode_new_child(*packet,"x");
-					xmlnode_set_namespace(x_node, NS_ENC);
-					xmlnode_insert_data(x_node, enc_str,-1);
-				}else
-				{
-					purple_debug_error(PLUGIN_ID, "could not encrypt message\n");
-				}
-			}else
-			{
-				// ignore this type of messages
-				//purple_debug_warning(PLUGIN_ID, "empty message or empty 'to'\n");
-			}
+			purple_debug_info(PLUGIN_ID, "no key selecteded!\n");
 		}
 	}else
+	if (g_str_equal((*packet)->name, "message"))
 	{
-		purple_debug_info(PLUGIN_ID, "no key selecteded!\n");
+		const char* to = xmlnode_get_attrib(*packet,"to");
+		xmlnode* body_node = xmlnode_get_child(*packet,"body");
+		if (body_node != NULL && to != NULL)
+		{
+			// get message
+			char* message = g_strdup(xmlnode_get_data(body_node));
+			char* enc_str = NULL;
+			char* bare_jid = get_bare_jid(to);
+
+			// get encryption key
+			struct list_item *item = g_hash_table_lookup(list_fingerprints,bare_jid);
+			if (item == NULL)
+			{
+				purple_debug_info(PLUGIN_ID, "there is no key for encrypting message to %s\n",bare_jid);
+				return;
+			}
+			// do not encrypt if mode_sec is disabled
+			if (item->mode_sec == FALSE)
+				return;
+
+			char* fpr_to = item->fpr;
+			purple_debug_info(PLUGIN_ID, "found key for encryption to user %s: %s\n",bare_jid,fpr_to);
+			free(bare_jid);
+
+			// encrypt message
+			enc_str = encrypt(message,fpr_to);
+			if (enc_str != NULL)
+			{
+				// remove message from body
+				xmlnode_clear_data(body_node);
+				xmlnode_insert_data(body_node,"[ERROR: This message is encrypted, and you are unable to decrypt it.]",-1);
+
+				// add special "x" childnode for encrypted text
+				purple_debug_info(PLUGIN_ID, "sending encrypted message\n");
+				xmlnode *x_node = xmlnode_new_child(*packet,"x");
+				xmlnode_set_namespace(x_node, NS_ENC);
+				xmlnode_insert_data(x_node, enc_str,-1);
+			}else
+			{
+				purple_debug_error(PLUGIN_ID, "could not encrypt message\n");
+			}
+		}else
+		{
+			// ignore this type of messages
+			//purple_debug_warning(PLUGIN_ID, "empty message or empty 'to'\n");
+		}
 	}
 }
 
@@ -755,19 +753,10 @@ conversation_extended_menu_cb(PurpleConversation *conv, GList **list)
 {
 	PurpleMenuAction *action = NULL;
 
-	// check if the user with the jid=conv->name has signed his presence
-	char* bare_jid = get_bare_jid(conv->name);
+	// display encryption menu item
+	action = purple_menu_action_new("Toggle OPENPGP encryption", PURPLE_CALLBACK(plugin_action_toggle_cb),NULL,NULL);
 
-	// get stored info about user
-	struct list_item* item = g_hash_table_lookup(list_fingerprints,bare_jid);
-	if (item != NULL)
-	{
-		// only display encryption menu item, if we have his public key fingerprint
-		action = purple_menu_action_new("Toggle OPENPGP encryption", PURPLE_CALLBACK(plugin_action_toggle_cb),NULL,NULL);
-
-		*list = g_list_append(*list, action);
-	}
-	free(bare_jid);
+	*list = g_list_append(*list, action);
 }
 
 /* ------------------
