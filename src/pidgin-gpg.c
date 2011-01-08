@@ -42,6 +42,15 @@
 
 static GHashTable *list_fingerprints = NULL;
 
+struct list_item{
+	// the key-fingerprint of the receiver
+	char* fpr;
+	// true if connection mode is encrypted
+	int mode_sec;
+	// old mode_sec value, used to check if user has already been informed on possible mode_sec change
+	int mode_sec_old;
+};
+
 /* ------------------
  * xmlnode.h lacks a method for clearing the data of a node
  * ------------------ */
@@ -423,6 +432,21 @@ jabber_message_received(PurpleConnection *pc, const char *type, const char *id,
 	const xmlnode* parent_node = message;
 	xmlnode* x_node = NULL;
 
+	// check if the user with the jid=from has signed his presence
+	char* bare_jid = get_bare_jid(from);
+
+	// get stored info about user
+	struct list_item* item = g_hash_table_lookup(list_fingerprints,bare_jid);
+	if (item == NULL)
+	{
+		//TODO: maybe create item in list?
+	}else
+	{
+		// set default value to "not encrypted mode"
+		item->mode_sec = 0;
+	}
+	free(bare_jid);
+
 	// check if message has special "x" child node => encrypted message
 	x_node = xmlnode_get_child_with_namespace(parent_node,"x",NS_ENC);
 	if (x_node != NULL)
@@ -450,8 +474,11 @@ jabber_message_received(PurpleConnection *pc, const char *type, const char *id,
 					body_node = xmlnode_new_child(message,"body");
 				}
 				// set "body" content node to decrypted string
-				xmlnode_insert_data(body_node,"Encrypted message: ",-1);				
+				//xmlnode_insert_data(body_node,"Encrypted message: ",-1);
 				xmlnode_insert_data(body_node,plain_str,-1);
+
+				// all went well, we received an encrypted message
+				item->mode_sec = 1;
 			}else
 			{
 				purple_debug_error(PLUGIN_ID, "could not decrypt message!\n");
@@ -494,7 +521,11 @@ jabber_presence_received(PurpleConnection *pc, const char *type,
 				purple_debug_info(PLUGIN_ID, "user %s has fingerprint %s\n",bare_jid,fpr);
 
 				// add key to list
-				g_hash_table_replace(list_fingerprints,bare_jid,fpr);
+				struct list_item *item = malloc(sizeof(struct list_item));
+				item->fpr = fpr;
+				// set encryption mode for default
+				item->mode_sec = 1;
+				g_hash_table_replace(list_fingerprints,bare_jid,item);
 			}else
 			{
 				purple_debug_error(PLUGIN_ID, "could not verify presence of user %s\n",from);
@@ -535,7 +566,6 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 			const char* status_str = NULL;
 			xmlnode* status_node;
 
-			//TODO: does not work
 			// get status message from packet
 			status_node = xmlnode_get_child(*packet,"status");
 			if (status_node != NULL)
@@ -573,16 +603,17 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 				char* bare_jid = get_bare_jid(to);
 
 				// get encryption key
-				char* fpr_to = g_hash_table_lookup(list_fingerprints,bare_jid);
-				if (fpr_to == NULL)
+				struct list_item *item = g_hash_table_lookup(list_fingerprints,bare_jid);
+				if (item == NULL)
 				{
 					purple_debug_info(PLUGIN_ID, "there is no key for encrypting message to %s\n",bare_jid);
 					return;
 				}
-				purple_debug_info(PLUGIN_ID, "found key for encryption: %s\n",fpr_to);
+				char* fpr_to = item->fpr;
+				purple_debug_info(PLUGIN_ID, "found key for encryption to user %s: %s\n",bare_jid,fpr_to);
+				free(bare_jid);
 
 				// encrypt message
-				//TODO: get public key fpr from receiver
 				enc_str = encrypt(message,fpr_to);
 				if (enc_str != NULL)
 				{
@@ -616,7 +647,7 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
  * ------------------ */
 void conversation_created_cb(PurpleConversation *conv, char* data)
 {
-	char buffer[1000];
+	char sys_msg_buffer[1000];
 	if (purple_conversation_get_type(conv) != PURPLE_CONV_TYPE_IM)
 		return;
 
@@ -625,18 +656,62 @@ void conversation_created_cb(PurpleConversation *conv, char* data)
 	// check if the user with the jid=conv->name has signed his presence
 	char* bare_jid = get_bare_jid(conv->name);
 
-	// get encryption key
-	char* fpr_to = g_hash_table_lookup(list_fingerprints,bare_jid);
-	if (fpr_to == NULL)
+	// get stored info about user
+	struct list_item* item = g_hash_table_lookup(list_fingerprints,bare_jid);
+	if (item == NULL)
 	{
-		sprintf(buffer,"No available OPENPGP key for %s",bare_jid);
+		sprintf(sys_msg_buffer,"No available OPENPGP key for %s",bare_jid);
 	}else
 	{
-		sprintf(buffer,"Available OPENPGP key for %s",bare_jid);
+		sprintf(sys_msg_buffer,"Available OPENPGP key for %s",bare_jid);
 	}
+	free(bare_jid);
 
 	// display a basic message
-	purple_conversation_write(conv,"",buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+	purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+
+	// set default message
+	sprintf(sys_msg_buffer,"Encryption disabled");
+
+	if (item != NULL)
+	{
+		if (item->mode_sec == 1)
+			sprintf(sys_msg_buffer,"Encryption enabled");
+	}
+	// display message about received message
+	purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+}
+
+/* ------------------
+ * called before display of received messages
+ * ------------------ */
+static gboolean
+receiving_im_msg_cb(PurpleAccount *account, char **sender, char **buffer,
+				    PurpleConversation *conv, PurpleMessageFlags *flags, void *data)
+{
+	char sys_msg_buffer[1000];
+
+	// check if the user with the jid=conv->name has signed his presence
+	char* bare_jid = get_bare_jid(*sender);
+
+	// set default message
+	sprintf(sys_msg_buffer,"Encryption disabled");
+
+	// get encryption key
+	struct list_item* item = g_hash_table_lookup(list_fingerprints,bare_jid);
+	if (item != NULL)
+	{
+		if (item->mode_sec == 1)
+			sprintf(sys_msg_buffer,"Encryption enabled");
+	}
+	free(bare_jid);
+
+	// display a basic message, only if mode changed
+	if (item->mode_sec != item->mode_sec_old)
+		purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+	item->mode_sec_old = item->mode_sec;
+
+	return FALSE;
 }
 
 
@@ -656,6 +731,7 @@ static gboolean plugin_load(PurplePlugin *plugin)
 	if (conv_handle != NULL)
 	{
 		purple_signal_connect(conv_handle, "conversation-created", plugin, PURPLE_CALLBACK(conversation_created_cb), NULL);
+		purple_signal_connect(conv_handle, "receiving-im-msg", plugin, PURPLE_CALLBACK(receiving_im_msg_cb), NULL);
 	}else
 		return FALSE;
 
