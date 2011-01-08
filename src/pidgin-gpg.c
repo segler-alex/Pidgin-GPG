@@ -767,16 +767,75 @@ conversation_extended_menu_cb(PurpleConversation *conv, GList **list)
 }
 
 /* ------------------
+ * check if a key is locally available
+ * ------------------ */
+int is_key_available(const char* fpr)
+{
+	gpgme_error_t error;
+	gpgme_ctx_t ctx;
+	gpgme_key_t key;
+
+	// connect to gpgme
+	gpgme_check_version (NULL);
+	error = gpgme_new(&ctx);
+	if (error)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_new failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		return FALSE;
+	}
+
+	// get key by fingerprint
+	error = gpgme_get_key(ctx,fpr,&key,1);
+	if (error || !key)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_get_key failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		gpgme_release (ctx);
+		return FALSE;
+	}
+
+	// close gpgme connection
+	gpgme_release (ctx);
+
+	// we got the key, YEAH :)
+	return TRUE;
+}
+
+/* ------------------
  * called before message is sent
  * ------------------ */
 void sending_im_msg_cb(PurpleAccount *account, const char *receiver,
                        char **message)
 {
-	
+	PurpleConversation *gconv = NULL;
 
-	// cancel message sending
-	free (*message);
-	*message = NULL;
+	// search for conversation
+	gconv = purple_find_conversation_with_account(PURPLE_CONV_TYPE_IM, receiver, account);
+	if(gconv)
+	{
+		// check if the user with the jid=conv->name has signed his presence
+		char* bare_jid = get_bare_jid(gconv->name);
+		// get stored info about user
+		struct list_item* item = g_hash_table_lookup(list_fingerprints,bare_jid);
+		if (item != NULL)
+		{
+			// if we are in private mode
+			if (item->mode_sec == TRUE)
+			{
+				// try to get key
+				if (is_key_available(item->fpr) == FALSE)
+				{
+					// we do not have key of receiver
+					// -> cancel message sending
+					free (*message);
+					*message = NULL;
+
+					// tell user of this
+					purple_conversation_write(gconv,"","The key of the receiver is not available, please ask the receiver for the key before trying to encrypt messages.",PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+				}
+			}
+		}
+		free(bare_jid);
+	}
 }
 
 /* ------------------
