@@ -26,7 +26,7 @@
 #define PREF_ROOT "/plugins/core/gtk-aerol-pidgin-gpg"
 #define PREF_MY_KEY "/plugins/core/gtk-aerol-pidgin-gpg/my_key_fpr"
 
-#include <glib.h>
+//#include <glib.h>
 #include <locale.h>
 #include <string.h>
 
@@ -268,7 +268,7 @@ static char* verify(const char* sig_str)
 		if (result->signatures != NULL)
 		{
 			// return the fingerprint of the key that made the signature
-			fpr = strdup(result->signatures->fpr);
+			fpr = g_strdup(result->signatures->fpr);
 		}
 	}
 
@@ -390,7 +390,7 @@ static char* decrypt(char* cipher_str)
 	if (plain_str != NULL)
 	{
 		plain_str[len] = 0;
-		plain_str_dup = strdup(plain_str);
+		plain_str_dup = g_strdup(plain_str);
 	}
 	gpgme_free(plain_str);
 
@@ -598,7 +598,7 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 			if (body_node != NULL && to != NULL)
 			{
 				// get message
-				char* message = strdup(xmlnode_get_data(body_node));
+				char* message = g_strdup(xmlnode_get_data(body_node));
 				char* enc_str = NULL;
 				char* bare_jid = get_bare_jid(to);
 
@@ -849,8 +849,8 @@ get_plugin_pref_frame(PurplePlugin *plugin) {
 			error = gpgme_op_keylist_next (ctx, &key);
 			if (error) break;
 			// add key to preference chooser
-			//TODO: find something better for strdup, or some possibility to free memory after preferences dialog closed
-			purple_plugin_pref_add_choice(ppref, strdup(key->uids->uid), strdup(key->subkeys->fpr));
+			//TODO: find something better for g_strdup, or some possibility to free memory after preferences dialog closed
+			purple_plugin_pref_add_choice(ppref, g_strdup(key->uids->uid), g_strdup(key->subkeys->fpr));
 			purple_debug_info(PLUGIN_ID,"Found secret key for: %s has fpr %s\n",key->uids->uid,key->subkeys->fpr);
 			gpgme_key_release (key);
 		}

@@ -15,7 +15,7 @@ AC_PROG_LIBTOOL
 AC_PROG_CC
 
 # Checks for libraries.
-PKG_CHECK_MODULES([PIDGIN], [pidgin])
+# PKG_CHECK_MODULES([PIDGIN], [pidgin])
 PKG_CHECK_MODULES([PURPLE], [purple])
 AM_PATH_GPGME([1.2.0])
 
