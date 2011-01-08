@@ -609,6 +609,10 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 					purple_debug_info(PLUGIN_ID, "there is no key for encrypting message to %s\n",bare_jid);
 					return;
 				}
+				// do not encrypt if mode_sec is disabled
+				if (item->mode_sec == 0)
+					return;
+
 				char* fpr_to = item->fpr;
 				purple_debug_info(PLUGIN_ID, "found key for encryption to user %s: %s\n",bare_jid,fpr_to);
 				free(bare_jid);
@@ -714,6 +718,50 @@ receiving_im_msg_cb(PurpleAccount *account, char **sender, char **buffer,
 	return FALSE;
 }
 
+/* ------------------
+ * conversation menu action, that toggles mode_sec
+ * ------------------ */
+static void
+plugin_action_toggle_cb(PurpleConversation *conv, void* data)
+{
+	// check if the user with the jid=conv->name has signed his presence
+	char* bare_jid = get_bare_jid(conv->name);
+
+	// get stored info about user
+	struct list_item* item = g_hash_table_lookup(list_fingerprints,bare_jid);
+	if (item != NULL)
+	{
+		item->mode_sec = !(item->mode_sec);
+		item->mode_sec_old = item->mode_sec;
+	}
+	free(bare_jid);
+
+	// tell user, that we toggled mode
+	purple_conversation_write(conv,"",item->mode_sec?"Encryption enabled":"Encryption disabled",PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+}
+
+/* ------------------
+ * conversation extended menu
+ * ------------------ */
+void
+conversation_extended_menu_cb(PurpleConversation *conv, GList **list)
+{
+	PurpleMenuAction *action = NULL;
+
+	// check if the user with the jid=conv->name has signed his presence
+	char* bare_jid = get_bare_jid(conv->name);
+
+	// get stored info about user
+	struct list_item* item = g_hash_table_lookup(list_fingerprints,bare_jid);
+	if (item != NULL)
+	{
+		// only display encryption menu item, if we have his public key fingerprint
+		action = purple_menu_action_new("Toggle OPENPGP encryption", PURPLE_CALLBACK(plugin_action_toggle_cb),NULL,NULL);
+
+		*list = g_list_append(*list, action);
+	}
+	free(bare_jid);
+}
 
 /* ------------------
  * called on module load
@@ -732,6 +780,7 @@ static gboolean plugin_load(PurplePlugin *plugin)
 	{
 		purple_signal_connect(conv_handle, "conversation-created", plugin, PURPLE_CALLBACK(conversation_created_cb), NULL);
 		purple_signal_connect(conv_handle, "receiving-im-msg", plugin, PURPLE_CALLBACK(receiving_im_msg_cb), NULL);
+		purple_signal_connect(conv_handle, "conversation-extended-menu", plugin, PURPLE_CALLBACK(conversation_extended_menu_cb), NULL);
 	}else
 		return FALSE;
 
