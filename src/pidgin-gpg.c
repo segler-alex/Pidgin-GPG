@@ -102,7 +102,7 @@ static char* str_unarmor(const char* armored)
 	char* footer = "-----END PGP SIGNATURE-----";
 	char* unarmored = NULL;
 
-	pointer = armored;
+	pointer = (char*)armored;
 	// jump over the first 3 lines
 	while (newlines < 3)
 	{
@@ -494,9 +494,6 @@ jabber_presence_received(PurpleConnection *pc, const char *type,
 				purple_debug_info(PLUGIN_ID, "user %s has fingerprint %s\n",bare_jid,fpr);
 
 				// add key to list
-				if (list_fingerprints == NULL)
-					list_fingerprints = g_hash_table_new(g_str_hash,g_str_equal);
-
 				g_hash_table_replace(list_fingerprints,bare_jid,fpr);
 			}else
 			{
@@ -566,7 +563,7 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 		}else
 		if (g_str_equal((*packet)->name, "message"))
 		{
-			char* to = xmlnode_get_attrib(*packet,"to");
+			const char* to = xmlnode_get_attrib(*packet,"to");
 			xmlnode* body_node = xmlnode_get_child(*packet,"body");
 			if (body_node != NULL && to != NULL)
 			{
@@ -574,10 +571,6 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 				char* message = strdup(xmlnode_get_data(body_node));
 				char* enc_str = NULL;
 				char* bare_jid = get_bare_jid(to);
-
-				// check if hashtable already created
-				if (list_fingerprints == NULL)
-					list_fingerprints = g_hash_table_new(g_str_hash,g_str_equal);
 
 				// get encryption key
 				char* fpr_to = g_hash_table_lookup(list_fingerprints,bare_jid);
@@ -619,19 +612,60 @@ void jabber_send_signal_cb(PurpleConnection *pc, xmlnode **packet,
 }
 
 /* ------------------
+ * called on new conversations
+ * ------------------ */
+void conversation_created_cb(PurpleConversation *conv, char* data)
+{
+	char buffer[1000];
+	if (purple_conversation_get_type(conv) != PURPLE_CONV_TYPE_IM)
+		return;
+
+	purple_debug_info(PLUGIN_ID, "conversation name: %s\n",conv->name);
+
+	// check if the user with the jid=conv->name has signed his presence
+	char* bare_jid = get_bare_jid(conv->name);
+
+	// get encryption key
+	char* fpr_to = g_hash_table_lookup(list_fingerprints,bare_jid);
+	if (fpr_to == NULL)
+	{
+		sprintf(buffer,"No available OPENPGP key for %s",bare_jid);
+	}else
+	{
+		sprintf(buffer,"Available OPENPGP key for %s",bare_jid);
+	}
+
+	// display a basic message
+	purple_conversation_write(conv,"",buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+}
+
+
+/* ------------------
  * called on module load
  * ------------------ */
 static gboolean plugin_load(PurplePlugin *plugin)
 {
+	// check if hashtable already created
+	if (list_fingerprints == NULL)
+		list_fingerprints = g_hash_table_new(g_str_hash,g_str_equal);
+
 	// register presence receiver handler
 	void *jabber_handle   = purple_plugins_find_with_id("prpl-jabber");
+	void *conv_handle     = purple_conversations_get_handle();
+
+	if (conv_handle != NULL)
+	{
+		purple_signal_connect(conv_handle, "conversation-created", plugin, PURPLE_CALLBACK(conversation_created_cb), NULL);
+	}else
+		return FALSE;
 
 	if (jabber_handle)
 	{
 		purple_signal_connect(jabber_handle, "jabber-receiving-message", plugin,PURPLE_CALLBACK(jabber_message_received), NULL);
 		purple_signal_connect(jabber_handle, "jabber-receiving-presence", plugin,PURPLE_CALLBACK(jabber_presence_received), NULL);
 		purple_signal_connect(jabber_handle, "jabber-sending-xmlnode", plugin, PURPLE_CALLBACK(jabber_send_signal_cb), NULL);
-	}
+	}else
+		return FALSE;
 
 	/*
 	Initialize everything needed; get the passphrase for encrypting and decrypting messages.
@@ -736,7 +770,7 @@ static PurplePluginInfo info = {
 
     PLUGIN_ID,
     "GPG/OPENPGP (XEP-0027)",
-    "0.1",
+    "0.5",
 
     "GPG Plugin for Pidgin",          
     "Simple GPG Plugin for Pidgin.",          
