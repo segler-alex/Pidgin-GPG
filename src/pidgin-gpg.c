@@ -25,6 +25,8 @@
 #define PREF_ROOT "/plugins/core/core-segler-pidgin-gpg"
 #define PREF_MY_KEY "/plugins/core/core-segler-pidgin-gpg/my_key_fpr"
 
+#include "../config.h"
+
 #include <locale.h>
 #include <string.h>
 
