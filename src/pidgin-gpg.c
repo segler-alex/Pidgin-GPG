@@ -2,7 +2,7 @@
  * Pidgin - GPG Pidgin Plugin
  *                                
  * Copyright (C) 2010, Aerol <rectifier04@gmail.com>
- *                     segler_alex <segler_alex@web.de>
+ *                     Alexander Murauer <segler_alex@web.de>
  *                                                                 
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -902,11 +902,11 @@ static PurplePluginInfo info = {
 
     PLUGIN_ID,
     "GPG/OPENPGP (XEP-0027)",
-    "0.5",
+    "0.6",
 
     "GPG Plugin for Pidgin",          
     "Simple GPG Plugin for Pidgin.",          
-    "segler_alex <segler_alex@web.de>",
+    "Alexander Murauer <segler_alex@web.de>",
     "https://github.com/segler-alex/Pidgin-GPG",     
     
     plugin_load,                   
