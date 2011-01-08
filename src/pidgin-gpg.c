@@ -152,6 +152,68 @@ static char* get_bare_jid(const char* jid)
 }
 
 /* ------------------
+ * get ascii armored public key
+ * FREE MEMORY AFTER USAGE OF RETURN VALUE!
+ * ------------------ */
+char* get_key_armored(const char* fpr)
+{	gpgme_error_t error;
+	gpgme_ctx_t ctx;
+	gpgme_data_t key_data;
+	gpgme_key_t key;
+	gpgme_key_t key_arr[2];
+	key_arr[0] = key_arr[1] = NULL;
+	size_t len = 0;
+	char* key_str = NULL;
+	char* key_str_dup = NULL;
+
+	// connect to gpgme
+	gpgme_check_version (NULL);
+	error = gpgme_new(&ctx);
+	if (error)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_new failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		return NULL;
+	}
+
+	// get key by fingerprint
+	error = gpgme_get_key(ctx,fpr,&key,1);
+	if (error || !key)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_get_key failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		gpgme_release (ctx);
+		return NULL;
+	}
+	key_arr[0] = key;
+
+	// create data containers
+	gpgme_data_new(&key_data);
+
+	// export key
+	gpgme_set_armor(ctx,1);
+	error = gpgme_op_export_keys (ctx, key_arr, 0, key_data);
+	if (error)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_op_export_keys failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		gpgme_release (ctx);
+		return NULL;
+	}
+
+	// release memory for data containers
+	key_str = gpgme_data_release_and_get_mem(key_data,&len);
+	if (key_str != NULL)
+	{
+		key_str[len] = 0;
+		key_str_dup = g_strdup(key_str);
+	}
+	gpgme_free(key_str);
+	// close gpgme connection
+	gpgme_release (ctx);
+
+	// we got the key, YEAH :)
+	return key_str_dup;
+}
+
+/* ------------------
  * sign a plain string with the key found with fingerprint fpr
  * FREE MEMORY AFTER USAGE OF RETURN VALUE!
  * ------------------ */
@@ -731,7 +793,7 @@ receiving_im_msg_cb(PurpleAccount *account, char **sender, char **buffer,
  * conversation menu action, that toggles mode_sec
  * ------------------ */
 static void
-plugin_action_toggle_cb(PurpleConversation *conv, void* data)
+menu_action_toggle_cb(PurpleConversation *conv, void* data)
 {
 	// check if the user with the jid=conv->name has signed his presence
 	char* bare_jid = get_bare_jid(conv->name);
@@ -750,6 +812,32 @@ plugin_action_toggle_cb(PurpleConversation *conv, void* data)
 }
 
 /* ------------------
+ * send public key to other person in conversation
+ * ------------------ */
+static void
+menu_action_sendkey_cb(PurpleConversation *conv, void* data)
+{
+	// check if user selected a main key
+	const char* fpr = purple_prefs_get_string(PREF_MY_KEY);
+	if (fpr == NULL)
+		fpr = "";
+	if (strcmp(fpr,"") != 0)
+	{
+		char* key = NULL;
+		// get key
+		key = get_key_armored(fpr);
+
+		if (key != NULL)
+		{
+			// send key
+			PurpleConvIm* im_data = purple_conversation_get_im_data(conv);
+			if (im_data != NULL)
+				purple_conv_im_send(im_data,key);
+		}
+	}
+}
+
+/* ------------------
  * conversation extended menu
  * ------------------ */
 void
@@ -764,7 +852,10 @@ conversation_extended_menu_cb(PurpleConversation *conv, GList **list)
 	if (item != NULL)
 	{
 		// on display encryption menu item, if user sent signed presence
-		action = purple_menu_action_new("Toggle OPENPGP encryption", PURPLE_CALLBACK(plugin_action_toggle_cb),NULL,NULL);
+		action = purple_menu_action_new("Toggle OPENPGP encryption", PURPLE_CALLBACK(menu_action_toggle_cb),NULL,NULL);
+		*list = g_list_append(*list, action);
+
+		action = purple_menu_action_new("Send own public key", PURPLE_CALLBACK(menu_action_sendkey_cb),NULL,NULL);
 		*list = g_list_append(*list, action);
 	}
 	free(bare_jid);
