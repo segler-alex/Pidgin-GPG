@@ -176,7 +176,7 @@ char* get_key_armored(const char* fpr)
 	}
 
 	// get key by fingerprint
-	error = gpgme_get_key(ctx,fpr,&key,1);
+	error = gpgme_get_key(ctx,fpr,&key,0);
 	if (error || !key)
 	{
 		purple_debug_error(PLUGIN_ID,"gpgme_get_key failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
@@ -221,6 +221,7 @@ int import_key(char* armored_key)
 	gpgme_error_t error;
 	gpgme_ctx_t ctx;
 	gpgme_data_t keydata;
+	gpgme_import_result_t result;
 
 	// connect to gpgme
 	gpgme_check_version (NULL);
@@ -230,10 +231,13 @@ int import_key(char* armored_key)
 		purple_debug_error(PLUGIN_ID,"gpgme_new failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
 		return FALSE;
 	}
+
+	purple_debug_info(PLUGIN_ID,"try to import key: %s\n",armored_key);
 	// create data containers
 	gpgme_data_new_from_mem (&keydata, armored_key,strlen(armored_key),1);
 
-	// import key
+	// import key, ascii armored
+	gpgme_set_armor(ctx,1);
 	error =  gpgme_op_import (ctx, keydata);
 	if (error)
 	{
@@ -241,6 +245,9 @@ int import_key(char* armored_key)
 		gpgme_release (ctx);
 		return FALSE;
 	}
+
+	result = gpgme_op_import_result (ctx);
+	purple_debug_info(PLUGIN_ID,"considered keys: %d; imported keys: %d; not imported keys: %d\n",result->considered,result->imported,result->not_imported);
 
 	// release memory for data containers
 	gpgme_data_release(keydata);
@@ -413,7 +420,7 @@ static char* encrypt(const char* plain_str, const char* fpr)
 	}
 
 	// get key by fingerprint
-	error = gpgme_get_key(ctx,fpr,&key,1);
+	error = gpgme_get_key(ctx,fpr,&key,0);
 	if (error || !key)
 	{
 		purple_debug_error(PLUGIN_ID,"gpgme_get_key failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
@@ -538,6 +545,34 @@ jabber_message_received(PurpleConnection *pc, const char *type, const char *id,
 {
 	const xmlnode* parent_node = message;
 	xmlnode* x_node = NULL;
+	xmlnode* body_node = NULL;
+
+	// check if message is a key
+	body_node = xmlnode_get_child(parent_node,"body");
+	if (body_node != NULL)
+	{
+		char* data = xmlnode_get_data(body_node);
+		if (data != NULL)
+		{
+			char* header = "-----BEGIN PGP PUBLIC KEY BLOCK-----";
+			if (strncmp(data,header,strlen(header)) == 0)
+			{
+				// if we received a ascii armored key
+				// try to import it
+				//purple_conversation_write(conv,"","received key",PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+				if (import_key(data) == TRUE)
+				{
+					xmlnode_clear_data(body_node);
+					xmlnode_insert_data(body_node,"key import ok",-1);
+				}
+				else
+				{
+					xmlnode_clear_data(body_node);
+					xmlnode_insert_data(body_node,"key import failed",-1);
+				}
+			}
+		}
+	}
 
 	// check if the user with the jid=from has signed his presence
 	char* bare_jid = get_bare_jid(from);
@@ -802,21 +837,7 @@ static gboolean
 receiving_im_msg_cb(PurpleAccount *account, char **sender, char **buffer,
 				    PurpleConversation *conv, PurpleMessageFlags *flags, void *data)
 {
-	char* header = "-----BEGIN PGP PUBLIC KEY BLOCK-----";
 	char sys_msg_buffer[1000];
-
-	if (strncmp(*buffer,header,strlen(header)) == 0)
-	{
-		// if we received a ascii armored key
-		// try to import it
-		purple_conversation_write(conv,"","received key",PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
-		if (import_key(*buffer) == TRUE)
-			purple_conversation_write(conv,"","key import OK",PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
-		else
-			purple_conversation_write(conv,"","key import failed",PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
-
-		return TRUE;
-	}
 
 	// check if the user with the jid=conv->name has signed his presence
 	char* bare_jid = get_bare_jid(*sender);
@@ -885,7 +906,7 @@ menu_action_sendkey_cb(PurpleConversation *conv, void* data)
 			PurpleConvIm* im_data = purple_conversation_get_im_data(conv);
 			if (im_data != NULL)
 			{
-				purple_conv_im_send_with_flags(im_data,key,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_INVISIBLE );
+				purple_conv_im_send_with_flags(im_data,key,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_INVISIBLE | PURPLE_MESSAGE_RAW );
 				purple_conversation_write(conv,"","Public key sent!",PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
 			}
 		}
@@ -922,7 +943,7 @@ conversation_extended_menu_cb(PurpleConversation *conv, GList **list)
 /* ------------------
  * check if a key is locally available
  * ------------------ */
-int is_key_available(const char* fpr)
+int is_key_available(const char* fpr,int secret)
 {
 	gpgme_error_t error;
 	gpgme_ctx_t ctx;
@@ -938,7 +959,7 @@ int is_key_available(const char* fpr)
 	}
 
 	// get key by fingerprint
-	error = gpgme_get_key(ctx,fpr,&key,1);
+	error = gpgme_get_key(ctx,fpr,&key,secret);
 	if (error || !key)
 	{
 		purple_debug_error(PLUGIN_ID,"gpgme_get_key failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
@@ -975,7 +996,7 @@ void sending_im_msg_cb(PurpleAccount *account, const char *receiver,
 			if (item->mode_sec == TRUE)
 			{
 				// try to get key
-				if (is_key_available(item->fpr) == FALSE)
+				if (is_key_available(item->fpr,0) == FALSE)
 				{
 					// we do not have key of receiver
 					// -> cancel message sending
