@@ -547,6 +547,9 @@ jabber_message_received(PurpleConnection *pc, const char *type, const char *id,
 	xmlnode* x_node = NULL;
 	xmlnode* body_node = NULL;
 
+	if (parent_node == NULL)
+		return FALSE;
+
 	// check if message is a key
 	body_node = xmlnode_get_child(parent_node,"body");
 	if (body_node != NULL)
@@ -851,13 +854,13 @@ receiving_im_msg_cb(PurpleAccount *account, char **sender, char **buffer,
 	{
 		if (item->mode_sec == TRUE)
 			sprintf(sys_msg_buffer,"Encryption enabled");
+
+		// display a basic message, only if mode changed
+		if (item->mode_sec != item->mode_sec_old)
+			purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+		item->mode_sec_old = item->mode_sec;
 	}
 	free(bare_jid);
-
-	// display a basic message, only if mode changed
-	if (item->mode_sec != item->mode_sec_old)
-		purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
-	item->mode_sec_old = item->mode_sec;
 
 	return FALSE;
 }
