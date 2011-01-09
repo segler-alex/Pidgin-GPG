@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.65])
-AC_INIT([pidgin-gpg], [0.8.1], [segler_alex@web.de])
+AC_INIT([pidgin-gpg], [0.8.2], [segler_alex@web.de])
 AC_CONFIG_SRCDIR([src/pidgin-gpg.c])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_AUX_DIR([config])
