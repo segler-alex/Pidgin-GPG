@@ -36,7 +36,7 @@ Section "PidginGPG"
   SetOutPath "$1\plugins"
   
   ; Put file there
-  File "pidgin_gpg.dll"
+  File "src/.libs/pidgin_gpg.dll"
   Goto finished
 
  onerror_nogpg:
