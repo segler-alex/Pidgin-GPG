@@ -1237,7 +1237,7 @@ static PurplePluginInfo info = {
 
     PLUGIN_ID,
     "GPG/OPENPGP (XEP-0027)",
-    "0.8.2",
+    "0.9",
 
     "GPG Plugin for Pidgin",          
     "Simple GPG Plugin for Pidgin.",          
