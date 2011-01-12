@@ -152,6 +152,68 @@ static char* get_bare_jid(const char* jid)
 }
 
 /* ------------------
+ * check if a key is locally available
+ * ------------------ */
+int is_key_available(const char* fpr,int secret, int servermode, char** userid)
+{
+	gpgme_error_t error;
+	gpgme_ctx_t ctx;
+	gpgme_key_t key;
+	gpgme_key_t key_arr[2];
+	gpgme_keylist_mode_t current_keylist_mode;
+	key_arr[0] = NULL;
+	key_arr[1] = NULL;
+
+	// connect to gpgme
+	gpgme_check_version (NULL);
+	error = gpgme_new(&ctx);
+	if (error)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_new failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		return FALSE;
+	}
+
+	// set to server search mode if servermode == TRUE
+	if (servermode == TRUE)
+	{
+		purple_debug_info(PLUGIN_ID,"set keylist mode to server\n");
+		current_keylist_mode = gpgme_get_keylist_mode(ctx);
+		gpgme_set_keylist_mode(ctx,(current_keylist_mode | GPGME_KEYLIST_MODE_EXTERN) &(~GPGME_KEYLIST_MODE_LOCAL));
+	}
+
+	// get key by fingerprint
+	error = gpgme_get_key(ctx,fpr,&key,secret);
+	if (error || !key)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_get_key failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		gpgme_release (ctx);
+		return FALSE;
+	}
+
+	// if we have parameter, tell caller about userid
+	if (userid != NULL)
+	{
+		*userid = g_strdup(key->uids->uid);
+	}
+
+	// import key
+	key_arr[0] = key;
+	error = gpgme_op_import_keys (ctx, key_arr);
+	if (error)
+	{
+		purple_debug_error(PLUGIN_ID,"gpgme_op_import_keys failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+		gpgme_release (ctx);
+		return FALSE;
+	}
+
+	// close gpgme connection
+	gpgme_release (ctx);
+
+	// we got the key, YEAH :)
+	return TRUE;
+}
+
+/* ------------------
  * get ascii armored public key
  * FREE MEMORY AFTER USAGE OF RETURN VALUE!
  * ------------------ */
@@ -672,8 +734,6 @@ jabber_presence_received(PurpleConnection *pc, const char *type,
 				// add key to list
 				struct list_item *item = malloc(sizeof(struct list_item));
 				item->fpr = fpr;
-				// set encryption mode for default
-				item->mode_sec = TRUE;
 				g_hash_table_replace(list_fingerprints,bare_jid,item);
 			}else
 			{
@@ -811,26 +871,49 @@ void conversation_created_cb(PurpleConversation *conv, char* data)
 	struct list_item* item = g_hash_table_lookup(list_fingerprints,bare_jid);
 	if (item == NULL)
 	{
-		sprintf(sys_msg_buffer,"No encryption support in client of %s",bare_jid);
+		sprintf(sys_msg_buffer,"No encryption support in client of '%s'",bare_jid);
 	}else
 	{
 		sprintf(sys_msg_buffer,"Client of user %s supports encryption",bare_jid);
 	}
-	free(bare_jid);
 
 	// display a basic message
 	purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
 
-	// set default message
-	sprintf(sys_msg_buffer,"Encryption disabled");
-
 	if (item != NULL)
 	{
+		char* userid = NULL;
+		// check if we have key locally
+		if (is_key_available(item->fpr,FALSE,FALSE,&userid) == FALSE)
+		{
+			if (userid != NULL)
+				free(userid);
+			userid = NULL;
+
+			sprintf(sys_msg_buffer,"User has key with ID '%s', but we do not have it locally, try Options->\"Try to retrieve key of '%s' from server\"",item->fpr,bare_jid);
+			purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+		}else
+		{
+			// key is already available locally -> enable mode_enc
+			sprintf(sys_msg_buffer,"'%s' uses key with id '%s'/'%s'",bare_jid,userid,item->fpr);
+			purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+			item->mode_sec = TRUE;
+		}
+		if (userid != NULL)
+			free(userid);
+		userid = NULL;
+		// if we have the key now, move to secure mode
 		if (item->mode_sec == TRUE)
 			sprintf(sys_msg_buffer,"Encryption enabled");
-	}
+		else
+			sprintf(sys_msg_buffer,"Encryption disabled");
+	}else
+		sprintf(sys_msg_buffer,"Encryption disabled");
+
 	// display message about received message
 	purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+
+	free(bare_jid);
 }
 
 /* ------------------
@@ -920,11 +1003,46 @@ menu_action_sendkey_cb(PurpleConversation *conv, void* data)
 }
 
 /* ------------------
+ * try to retrieve key from server
+ * ------------------ */
+static void
+menu_action_retrievekey_cb(PurpleConversation *conv, void* data)
+{
+	char sys_msg_buffer[1000];
+	// check if the user with the jid=conv->name has signed his presence
+	char* bare_jid = get_bare_jid(conv->name);
+
+	// get stored info about user
+	struct list_item* item = g_hash_table_lookup(list_fingerprints,bare_jid);
+	if (item != NULL)
+	{
+		char* userid = NULL;
+		if (is_key_available(item->fpr,FALSE,TRUE,&userid) == FALSE)
+		{
+			sprintf(sys_msg_buffer,"Did not find key with ID '%s' on keyservers.",item->fpr);
+			purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+		}else
+		{
+			// found key -> enable mode_enc
+			sprintf(sys_msg_buffer,"Found key with ID '%s'/'%s' for '%s' on keyservers.",item->fpr,userid,bare_jid);
+			purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+			purple_conversation_write(conv,"","Encryption enabled",PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+			item->mode_sec = TRUE;
+		}
+		if (userid != NULL)
+			free(userid);
+	}
+
+	free(bare_jid);
+}
+
+/* ------------------
  * conversation extended menu
  * ------------------ */
 void
 conversation_extended_menu_cb(PurpleConversation *conv, GList **list)
 {
+	char buffer[1000];
 	PurpleMenuAction *action = NULL;
 
 	// check if the user with the jid=conv->name has signed his presence
@@ -937,44 +1055,15 @@ conversation_extended_menu_cb(PurpleConversation *conv, GList **list)
 		action = purple_menu_action_new("Toggle OPENPGP encryption", PURPLE_CALLBACK(menu_action_toggle_cb),NULL,NULL);
 		*list = g_list_append(*list, action);
 
-		action = purple_menu_action_new("Send own public key", PURPLE_CALLBACK(menu_action_sendkey_cb),NULL,NULL);
+		sprintf(buffer,"Send own public key to '%s'",bare_jid);
+		action = purple_menu_action_new(buffer, PURPLE_CALLBACK(menu_action_sendkey_cb),NULL,NULL);
+		*list = g_list_append(*list, action);
+		
+		sprintf(buffer,"Try to retrieve key of '%s' from server",bare_jid);
+		action = purple_menu_action_new(buffer, PURPLE_CALLBACK(menu_action_retrievekey_cb),NULL,NULL);
 		*list = g_list_append(*list, action);
 	}
 	free(bare_jid);
-}
-
-/* ------------------
- * check if a key is locally available
- * ------------------ */
-int is_key_available(const char* fpr,int secret)
-{
-	gpgme_error_t error;
-	gpgme_ctx_t ctx;
-	gpgme_key_t key;
-
-	// connect to gpgme
-	gpgme_check_version (NULL);
-	error = gpgme_new(&ctx);
-	if (error)
-	{
-		purple_debug_error(PLUGIN_ID,"gpgme_new failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
-		return FALSE;
-	}
-
-	// get key by fingerprint
-	error = gpgme_get_key(ctx,fpr,&key,secret);
-	if (error || !key)
-	{
-		purple_debug_error(PLUGIN_ID,"gpgme_get_key failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
-		gpgme_release (ctx);
-		return FALSE;
-	}
-
-	// close gpgme connection
-	gpgme_release (ctx);
-
-	// we got the key, YEAH :)
-	return TRUE;
 }
 
 /* ------------------
@@ -999,7 +1088,7 @@ void sending_im_msg_cb(PurpleAccount *account, const char *receiver,
 			if (item->mode_sec == TRUE)
 			{
 				// try to get key
-				if (is_key_available(item->fpr,0) == FALSE)
+				if (is_key_available(item->fpr,FALSE,FALSE,NULL) == FALSE)
 				{
 					// we do not have key of receiver
 					// -> cancel message sending
