@@ -8,6 +8,9 @@ AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_AUX_DIR([config])
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 
+m4_pattern_allow([AM_PROG_AR])
+AM_PROG_AR
+
 # Checks for programs.
 AC_DISABLE_STATIC
 AC_PROG_LIBTOOL
