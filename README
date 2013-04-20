@@ -1,6 +1,0 @@
-Build with:
-==========
-* autoreconf -i
-* ./configure
-* make
-* cp src/.libs/libpidgin_gpg.so ~/.purple/plugins/
