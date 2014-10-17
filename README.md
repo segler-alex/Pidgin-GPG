@@ -3,9 +3,11 @@ pidgin-gpg
 
 Building
 --------
+	apt install libpurple-dev libgpgme11-dev
     autoreconf -i
     ./configure
     make
+	mkdir -p ~/.purple/plugins
     cp src/.libs/pidgin_gpg.so ~/.purple/plugins/
 
 Usage
