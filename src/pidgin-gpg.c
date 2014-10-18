@@ -510,7 +510,6 @@ static char* encrypt(const char* plain_str, const char* fpr)
 	cipher_str = gpgme_data_release_and_get_mem(cipher,&len);
 	if (cipher_str != NULL)
 	{
-		cipher_str[len] = 0;
 		cipher_str_dup = str_unarmor(cipher_str);
 	}
 	gpgme_free(cipher_str);
