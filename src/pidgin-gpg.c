@@ -667,22 +667,19 @@ jabber_message_received(PurpleConnection *pc, const char *type, const char *id,
 	}
 
 	// check if the user with the jid=from has signed his presence
+	char* bare_jid_own = get_bare_jid(purple_connection_get_account(pc)->username);
+        char* bare_jid = get_bare_jid(from);
 	// use from or to depending on whether it's a carbonated sent message
-	xmlnode *sent = xmlnode_get_child_with_namespace(parent_node, "sent", NS_XMPP_CARBONS);
-	char* bare_jid = get_bare_jid((sent) ? to : from);
-
+        if (strcmp(bare_jid,bare_jid_own) == 0)
+                bare_jid = get_bare_jid(to);
 	// get stored info about user
 	struct list_item* item = g_hash_table_lookup(list_fingerprints,bare_jid);
-	if (item == NULL)
-	{
-		//TODO: maybe create item in list?
-	}else
-	{
-		// set default value to "not encrypted mode"
-		item->mode_sec = FALSE;
-	}
 	free(bare_jid);
+	free(bare_jid_own);
 
+	// We don't set item->mode_sec = FALSE here because of any received message that is not encrypted.
+	// forwarded non-encrypted messages (receipts etc.) will otherwise disable encryption
+	
 	// check if message has special "x" child node => encrypted message
 	x_node = xmlnode_get_child_with_namespace(parent_node,"x",NS_ENC);
 	if (x_node != NULL)
