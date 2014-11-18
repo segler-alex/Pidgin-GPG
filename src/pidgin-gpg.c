@@ -463,6 +463,7 @@ static char* encrypt(const char* plain_str, const char* fpr)
 	gpgme_error_t error;
 	gpgme_ctx_t ctx;
 	gpgme_key_t key;
+	gpgme_key_t sender_key;
 	gpgme_data_t plain,cipher;
 	char* cipher_str = NULL;
 	char* cipher_str_dup = NULL;
