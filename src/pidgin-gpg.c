@@ -881,12 +881,10 @@ void conversation_created_cb(PurpleConversation *conv, char* data)
 		{
 			// local key is missing
 			sprintf(sys_msg_buffer,"User has key with Fingerprint %s, but we do not have it locally. Try Options -> \"Try to retrieve key of '%s' from server\"",item->fpr,bare_jid);
-			purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
 		}else
 		{
 			// key is already available locally -> enable mode_enc
 			sprintf(sys_msg_buffer,"Encryption enabled with %s (%s)", userid, item->fpr);
-			purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
 			item->mode_sec = TRUE;
 		}
 		if (userid != NULL)
