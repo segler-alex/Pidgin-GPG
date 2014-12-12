@@ -113,8 +113,10 @@ static char* str_armor(const char* unarmored)
  * ------------------ */
 static char* str_unarmor(const char* armored)
 {
-	const char* header = "-----BEGIN PGP SIGNATURE-----";
-	const char* footer = "-----END PGP SIGNATURE-----";
+	const char* header = "-----BEGIN PGP MESSAGE-----";
+	const char* footer = "-----END PGP MESSAGE-----";
+	const char* signatureHeader = "-----BEGIN PGP SIGNATURE-----";
+	const char* signatureFooter = "-----END PGP SIGNATURE-----";
 	const char* begin;
 	const char* end;
 	const char* tmp;
@@ -124,8 +126,14 @@ static char* str_unarmor(const char* armored)
 	if( begin == NULL )
 		return NULL;
 
-	// Search for the header
-	if( ( begin = strstr( begin, header ) ) == NULL )
+	// Search for the message header
+	if( ( tmp = strstr( begin, header ) ) != NULL )
+		begin == tmp;
+	// Search for the signature header
+	else if( ( begin = strstr( begin, signatureHeader ) ) != NULL ) {
+		header = signatureHeader;
+		footer = signatureFooter;
+	} else
 		return NULL;
 	// Skip the header
 	begin += strlen( header ) * sizeof( char );
@@ -149,9 +157,11 @@ static char* str_unarmor(const char* armored)
 		return NULL;
 
 	// Copy the unarmored cypher block
-	unarmored = (char*)malloc( ( end - begin + 1 ) * sizeof( char ) );
-	strncpy( unarmored, begin, ( end - begin ) / sizeof( char ) );
-	unarmored[ ( end - begin ) / sizeof( char ) ] = 0;
+	if( begin < end ) {
+		unarmored = (char*)malloc( ( end - begin + 1 ) * sizeof( char ) );
+		strncpy( unarmored, begin, ( end - begin ) / sizeof( char ) );
+		unarmored[ ( end - begin ) / sizeof( char ) ] = 0;
+	}
 
 	return unarmored;
 }
