@@ -141,17 +141,19 @@ static char* str_unarmor(const char* armored)
 	if( ( end = strstr( begin, footer ) ) == NULL )
 		return NULL;
 	// Skip newline chars before the footer
-	while( *( end - 1 * sizeof( char ) ) == '\n' )
+	while( *( end - 1 * sizeof( char ) ) == '\r' || *( end - 1 * sizeof( char ) ) == '\n' )
 		end -= sizeof( char );
 	if( end <= begin )
 		return NULL;
 	// Skip until the last occurance of an empty line before the end
 	while( ( tmp = strstr( begin, "\n\n" ) ) != NULL && tmp < end )
 		begin = tmp + 2 * sizeof( char );
+	while( ( tmp = strstr( begin, "\r\n\r\n" ) ) != NULL && tmp < end )
+		begin = tmp + 4 * sizeof( char );
 	if( end <= begin )
 		return NULL;
 	// Skip newline chars in front of the cypher block
-	while( *begin == '\n' )
+	while(  *begin == '\r' || *begin == '\n' )
 		begin += sizeof( char );
 	if( end <= begin )
 		return NULL;
