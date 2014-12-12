@@ -149,11 +149,9 @@ static char* str_unarmor(const char* armored)
 		return NULL;
 
 	// Copy the unarmored cypher block
-	if( begin < end ) {
-		unarmored = (char*)malloc( ( end - begin + 1 ) * sizeof( char ) );
-		strncpy( unarmored, begin, ( end - begin ) / sizeof( char ) );
-		unarmored[ ( end - begin ) / sizeof( char ) ] = 0;
-	}
+	unarmored = (char*)malloc( ( end - begin + 1 ) * sizeof( char ) );
+	strncpy( unarmored, begin, ( end - begin ) / sizeof( char ) );
+	unarmored[ ( end - begin ) / sizeof( char ) ] = 0;
 
 	return unarmored;
 }
