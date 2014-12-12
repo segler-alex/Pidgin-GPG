@@ -880,7 +880,7 @@ void conversation_created_cb(PurpleConversation *conv, char* data)
 		if (is_key_available(item->fpr,FALSE,FALSE,&userid) == FALSE)
 		{
 			// local key is missing
-			sprintf(sys_msg_buffer,"User has key with Fingerprint %s, but we do not have it locally. Try Options -> \"Try to retrieve key of '%s' from server\".",item->fpr,bare_jid);
+			sprintf(sys_msg_buffer,"User has key with Fingerprint %s, but we do not have it locally. Try Options -> \"Try to retrieve key of '%s' from server\"",item->fpr,bare_jid);
 			purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
 		}else
 		{
@@ -893,7 +893,7 @@ void conversation_created_cb(PurpleConversation *conv, char* data)
 			free(userid);
 		userid = NULL;
 	}else
-		sprintf(sys_msg_buffer,"The remote client does not support encryption.");
+		sprintf(sys_msg_buffer,"Encryption disabled, the remote client doesn't support it.");
 
 	// display message about received message
 	purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
