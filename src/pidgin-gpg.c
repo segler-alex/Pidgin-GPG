@@ -495,29 +495,17 @@ static char* encrypt(const char* plain_str, const char* fpr)
 
 	// check if user selected a main key
 	const char* sender_fpr = purple_prefs_get_string(PREF_MY_KEY);
-	if (sender_fpr == NULL)
-		sender_fpr = "";
-	if (strcmp(sender_fpr,"") != 0)
+	if ( sender_fpr != NULL && strcmp(sender_fpr,"") != 0)
 	{
-		// connect to gpgme
-		gpgme_check_version (NULL);
-		error = gpgme_new(&ctx);
-		if (error)
-		{
-			purple_debug_error(PLUGIN_ID,"gpgme_new failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
-			return NULL;
-		}
-
-		// get key by fingerprint
+		// get own key by fingerprint
 		error = gpgme_get_key(ctx,sender_fpr,&sender_key,0);
-		if (error || !sender_key)
-		{
-			purple_debug_error(PLUGIN_ID,"gpgme_get_key failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
-			gpgme_release (ctx);
-			return NULL;
-		}
-		key_arr[1] = sender_key;
+		if (!error && sender_key)
+			key_arr[1] = sender_key;
+		else
+			purple_debug_error(PLUGIN_ID,"gpgme_get_key: sender key for fingerprint %s is missing! error: %s %s\n", sender_fpr, gpgme_strsource (error), gpgme_strerror (error) );
 	}
+	else
+		purple_debug_error(PLUGIN_ID,"purple_prefs_get_string: PREF_MY_KEY was empty\n");
 
 	// create data containers
 	gpgme_data_new_from_mem (&plain, plain_str,strlen(plain_str),1);
