@@ -463,14 +463,16 @@ static char* encrypt(const char* plain_str, const char* fpr)
 	gpgme_error_t error;
 	gpgme_ctx_t ctx;
 	gpgme_key_t key;
+	gpgme_key_t sender_key;
 	gpgme_data_t plain,cipher;
 	char* cipher_str = NULL;
 	char* cipher_str_dup = NULL;
 	size_t len;
-	gpgme_key_t key_arr[2];
+	gpgme_key_t key_arr[3];
 
 	key_arr[0] = NULL;
 	key_arr[1] = NULL;
+	key_arr[2] = NULL;
 
 	// connect to gpgme
 	gpgme_check_version (NULL);
@@ -490,6 +492,32 @@ static char* encrypt(const char* plain_str, const char* fpr)
 		return NULL;
 	}
 	key_arr[0] = key;
+
+	// check if user selected a main key
+	const char* sender_fpr = purple_prefs_get_string(PREF_MY_KEY);
+	if (sender_fpr == NULL)
+		sender_fpr = "";
+	if (strcmp(sender_fpr,"") != 0)
+	{
+		// connect to gpgme
+		gpgme_check_version (NULL);
+		error = gpgme_new(&ctx);
+		if (error)
+		{
+			purple_debug_error(PLUGIN_ID,"gpgme_new failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+			return NULL;
+		}
+
+		// get key by fingerprint
+		error = gpgme_get_key(ctx,sender_fpr,&sender_key,0);
+		if (error || !sender_key)
+		{
+			purple_debug_error(PLUGIN_ID,"gpgme_get_key failed: %s %s\n",gpgme_strsource (error), gpgme_strerror (error));
+			gpgme_release (ctx);
+			return NULL;
+		}
+		key_arr[1] = sender_key;
+	}
 
 	// create data containers
 	gpgme_data_new_from_mem (&plain, plain_str,strlen(plain_str),1);
@@ -596,6 +624,7 @@ static void init_gpgme ()
 
 static const char* NS_SIGNED = "jabber:x:signed";
 static const char* NS_ENC = "jabber:x:encrypted";
+static const char* NS_XMPP_CARBONS = "urn:xmpp:carbons:2";
 
 /* ------------------
  * called on received message
@@ -639,20 +668,19 @@ jabber_message_received(PurpleConnection *pc, const char *type, const char *id,
 	}
 
 	// check if the user with the jid=from has signed his presence
-	char* bare_jid = get_bare_jid(from);
-
+	char* bare_jid_own = get_bare_jid(purple_connection_get_account(pc)->username);
+        char* bare_jid = get_bare_jid(from);
+	// use from or to depending on whether it's a carbonated sent message
+        if (strcmp(bare_jid,bare_jid_own) == 0)
+                bare_jid = get_bare_jid(to);
 	// get stored info about user
 	struct list_item* item = g_hash_table_lookup(list_fingerprints,bare_jid);
-	if (item == NULL)
-	{
-		//TODO: maybe create item in list?
-	}else
-	{
-		// set default value to "not encrypted mode"
-		item->mode_sec = FALSE;
-	}
 	free(bare_jid);
+	free(bare_jid_own);
 
+	// We don't set item->mode_sec = FALSE here because of any received message that is not encrypted.
+	// forwarded non-encrypted messages (receipts etc.) will otherwise disable encryption
+	
 	// check if message has special "x" child node => encrypted message
 	x_node = xmlnode_get_child_with_namespace(parent_node,"x",NS_ENC);
 	if (x_node != NULL)
