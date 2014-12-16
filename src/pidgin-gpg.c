@@ -113,27 +113,55 @@ static char* str_armor(const char* unarmored)
  * ------------------ */
 static char* str_unarmor(const char* armored)
 {
-	char* pointer;
-	int newlines = 0;
-	char* footer = "-----END PGP SIGNATURE-----";
+	const char* header = "-----BEGIN PGP MESSAGE-----";
+	const char* footer = "-----END PGP MESSAGE-----";
+	const char* signatureHeader = "-----BEGIN PGP SIGNATURE-----";
+	const char* signatureFooter = "-----END PGP SIGNATURE-----";
+	const char* begin;
+	const char* end;
+	const char* tmp;
 	char* unarmored = NULL;
+	unsigned unarmoredIndex = 0;
 
-	pointer = (char*)armored;
-	// jump over the first 3 lines
-	while (newlines < 3)
-	{
-		if (pointer[0] == '\n')
-			newlines++;
-		pointer++;
+	begin = end = (char*)armored;
+	if( begin == NULL )
+		return NULL;
 
-		// return NULL if armored is too short
-		if (strlen(pointer) == 0)
-			return NULL;
+	// Search for the message header
+	if( ( tmp = strstr( begin, header ) ) != NULL )
+		begin == tmp;
+	// Search for the signature header
+	else if( ( begin = strstr( begin, signatureHeader ) ) != NULL ) {
+		header = signatureHeader;
+		footer = signatureFooter;
+	} else
+		return NULL;
+	// Skip the header
+	begin += strlen( header ) * sizeof( char );
+	// Search the footer
+	if( ( end = strstr( begin, footer ) ) == NULL )
+		return NULL;
+	// Skip newline chars before the footer
+	while( *( end - 1 * sizeof( char ) ) == '\r' || *( end - 1 * sizeof( char ) ) == '\n' )
+		end -= sizeof( char );
+	if( end <= begin )
+		return NULL;
+	// Skip until the last occurance of an empty line before the end
+	while( ( tmp = strstr( begin, "\n\n" ) ) != NULL && tmp < end )
+		begin = tmp + 2 * sizeof( char );
+	while( ( tmp = strstr( begin, "\r\n\r\n" ) ) != NULL && tmp < end )
+		begin = tmp + 4 * sizeof( char );
+	if( end <= begin )
+		return NULL;
+
+	// Copy the unarmored cypher block, without any newline chars
+	unarmored = (char*)malloc( ( end - begin + 1 ) * sizeof( char ) );
+	while( begin < end ) {
+		if( *begin != '\r' && *begin != '\n' )
+			unarmored[ unarmoredIndex++ ] = *begin;
+		begin++;
 	}
-
-	unarmored = malloc(strlen(pointer)+1-strlen(footer));
-	strncpy(unarmored,pointer,strlen(pointer)-strlen(footer));
-	unarmored[strlen(pointer)-strlen(footer)] = 0;
+	unarmored[ unarmoredIndex ] = 0;
 
 	return unarmored;
 }
