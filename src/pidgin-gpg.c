@@ -119,17 +119,22 @@ static char* str_unarmor(const char* armored)
 	char* unarmored = NULL;
 
 	pointer = (char*)armored;
-	// jump over the first 3 lines
-	while (newlines < 3)
-	{
-		if (pointer[0] == '\n')
-			newlines++;
-		pointer++;
 
-		// return NULL if armored is too short
-		if (strlen(pointer) == 0)
+	// the ASCII armored output start after the first block of empty lines
+	while (pointer[0] != '\n') {
+		if((pointer = strchr(pointer, '\n')) == NULL)
 			return NULL;
+		pointer++;
 	}
+	while (pointer[0] == '\n') {
+		if((pointer = strchr(pointer, '\n')) == NULL)
+			return NULL;
+		 pointer++;
+	}
+
+	// return NULL if armored is too short
+	if (strlen(pointer) == 0)
+		return NULL;
 
 	unarmored = malloc(strlen(pointer)+1-strlen(footer));
 	strncpy(unarmored,pointer,strlen(pointer)-strlen(footer));
