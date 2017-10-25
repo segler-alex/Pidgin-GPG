@@ -113,27 +113,55 @@ static char* str_armor(const char* unarmored)
  * ------------------ */
 static char* str_unarmor(const char* armored)
 {
-	char* pointer;
-	int newlines = 0;
-	char* footer = "-----END PGP SIGNATURE-----";
+	const char* header = "-----BEGIN PGP MESSAGE-----";
+	const char* footer = "-----END PGP MESSAGE-----";
+	const char* signatureHeader = "-----BEGIN PGP SIGNATURE-----";
+	const char* signatureFooter = "-----END PGP SIGNATURE-----";
+	const char* begin;
+	const char* end;
+	const char* tmp;
 	char* unarmored = NULL;
+	unsigned unarmoredIndex = 0;
 
-	pointer = (char*)armored;
-	// jump over the first 3 lines
-	while (newlines < 3)
-	{
-		if (pointer[0] == '\n')
-			newlines++;
-		pointer++;
+	begin = end = (char*)armored;
+	if( begin == NULL )
+		return NULL;
 
-		// return NULL if armored is too short
-		if (strlen(pointer) == 0)
-			return NULL;
+	// Search for the message header
+	if( ( tmp = strstr( begin, header ) ) != NULL )
+		begin == tmp;
+	// Search for the signature header
+	else if( ( begin = strstr( begin, signatureHeader ) ) != NULL ) {
+		header = signatureHeader;
+		footer = signatureFooter;
+	} else
+		return NULL;
+	// Skip the header
+	begin += strlen( header ) * sizeof( char );
+	// Search the footer
+	if( ( end = strstr( begin, footer ) ) == NULL )
+		return NULL;
+	// Skip newline chars before the footer
+	while( *( end - 1 * sizeof( char ) ) == '\r' || *( end - 1 * sizeof( char ) ) == '\n' )
+		end -= sizeof( char );
+	if( end <= begin )
+		return NULL;
+	// Skip until the last occurance of an empty line before the end
+	while( ( tmp = strstr( begin, "\n\n" ) ) != NULL && tmp < end )
+		begin = tmp + 2 * sizeof( char );
+	while( ( tmp = strstr( begin, "\r\n\r\n" ) ) != NULL && tmp < end )
+		begin = tmp + 4 * sizeof( char );
+	if( end <= begin )
+		return NULL;
+
+	// Copy the unarmored cypher block, without any newline chars
+	unarmored = (char*)malloc( ( end - begin + 1 ) * sizeof( char ) );
+	while( begin < end ) {
+		if( *begin != '\r' && *begin != '\n' )
+			unarmored[ unarmoredIndex++ ] = *begin;
+		begin++;
 	}
-
-	unarmored = malloc(strlen(pointer)+1-strlen(footer));
-	strncpy(unarmored,pointer,strlen(pointer)-strlen(footer));
-	unarmored[strlen(pointer)-strlen(footer)] = 0;
+	unarmored[ unarmoredIndex ] = 0;
 
 	return unarmored;
 }
@@ -683,7 +711,7 @@ jabber_message_received(PurpleConnection *pc, const char *type, const char *id,
 			char* plain_str = decrypt(cipher_str);
 			if (plain_str != NULL)
 			{
-				purple_debug_info(PLUGIN_ID, "decrypted message: %s\n",plain_str);
+				//purple_debug_info(PLUGIN_ID, "decrypted message: %s\n",plain_str);
 				// find body node
 				xmlnode *body_node = xmlnode_get_child(parent_node,"body");
 				if (body_node != NULL)
@@ -877,23 +905,12 @@ void conversation_created_cb(PurpleConversation *conv, char* data)
 	if (purple_conversation_get_type(conv) != PURPLE_CONV_TYPE_IM)
 		return;
 
-	purple_debug_info(PLUGIN_ID, "conversation name: %s\n",conv->name);
-
 	// check if the user with the jid=conv->name has signed his presence
 	char* bare_jid = get_bare_jid(conv->name);
+	purple_debug_info(PLUGIN_ID, "conversation name: %s bare jid: %s\n",conv->name,bare_jid);
 
 	// get stored info about user
 	struct list_item* item = g_hash_table_lookup(list_fingerprints,bare_jid);
-	if (item == NULL)
-	{
-		sprintf(sys_msg_buffer,"No encryption support in client of '%s'",bare_jid);
-	}else
-	{
-		sprintf(sys_msg_buffer,"Client of user %s supports encryption",bare_jid);
-	}
-
-	// display a basic message
-	purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
 
 	if (item != NULL)
 	{
@@ -901,29 +918,19 @@ void conversation_created_cb(PurpleConversation *conv, char* data)
 		// check if we have key locally
 		if (is_key_available(item->fpr,FALSE,FALSE,&userid) == FALSE)
 		{
-			if (userid != NULL)
-				free(userid);
-			userid = NULL;
-
-			sprintf(sys_msg_buffer,"User has key with ID '%s', but we do not have it locally, try Options->\"Try to retrieve key of '%s' from server\"",item->fpr,bare_jid);
-			purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+			// local key is missing
+			sprintf(sys_msg_buffer,"User has key with Fingerprint %s, but we do not have it locally. Try Options -> \"Try to retrieve key of '%s' from server\"",item->fpr,bare_jid);
 		}else
 		{
 			// key is already available locally -> enable mode_enc
-			sprintf(sys_msg_buffer,"'%s' uses key with id '%s'/'%s'",bare_jid,userid,item->fpr);
-			purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
+			sprintf(sys_msg_buffer,"Encryption enabled with %s (%s)", userid, item->fpr);
 			item->mode_sec = TRUE;
 		}
 		if (userid != NULL)
 			free(userid);
 		userid = NULL;
-		// if we have the key now, move to secure mode
-		if (item->mode_sec == TRUE)
-			sprintf(sys_msg_buffer,"Encryption enabled");
-		else
-			sprintf(sys_msg_buffer,"Encryption disabled");
 	}else
-		sprintf(sys_msg_buffer,"Encryption disabled");
+		sprintf(sys_msg_buffer,"Encryption disabled, the remote client doesn't support it.");
 
 	// display message about received message
 	purple_conversation_write(conv,"",sys_msg_buffer,PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_NO_LOG,time(NULL));
