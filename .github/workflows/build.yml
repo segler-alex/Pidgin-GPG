@@ -1,0 +1,48 @@
+name: Windows and Linux Builds
+on:
+  - push
+  - pull_request
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install deps
+        run: |
+          sudo apt update
+          sudo apt install -y libgpgme11-dev gcc-mingw-w64-i686-win32
+          # We only need these to build, not to run.  Skip the dependency check.
+          sudo apt download libpurple0 libpurple-dev
+          sudo dpkg --force-depends -i libpurple0*.deb libpurple-dev*.deb
+      
+      - name: Compile for Linux
+        run: |
+          autoreconf -i
+          ./configure
+          make
+          cp src/.libs/pidgin_gpg.so pidgin_gpg.so
+
+      - name: Compile for Windows
+        run: |
+          cp /usr/include/gpgme.h .
+          cp /usr/include/x86_64-linux-gnu/gpg-error.h .
+          ./configure --host i686-w64-mingw32 CPPFLAGS=-I/usr/i686-w64-mingw32/include
+          DIR=`pwd`
+          make GPGME_LIBS="-L$DIR/win32libs -lgpgme -lgpg-error" LDFLAGS="-static-libgcc -no-undefined" pidgin_gpg_la_CFLAGS="\$(PURPLE_CFLAGS) \$(GPGME_CFLAGS)"
+          cp src/.libs/pidgin_gpg.dll pidgin_gpg.dll
+          cp win32libs/libgpg-error.dll libgpg-error-0.dll
+          cp win32libs/libgpgme.dll libgpgme-11.dll
+
+      - name: archive
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with: 
+            name: pidgin_gpg plugin 
+            path: |
+              pidgin_gpg.so
+              pidgin_gpg.dll
+              libgpg-error-0.dll
+              libgpgme-11.dll
+              
